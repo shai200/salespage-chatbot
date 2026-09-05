@@ -87,6 +87,14 @@ body {
   font-size: 0.95rem;
 }
 
+.hero-visual {
+  margin-top: 40px;
+  width: 100%;
+  max-height: 420px;
+  object-fit: cover;
+  display: block;
+}
+
 .hero {
   padding-top: 96px;
 }
@@ -178,4 +186,20 @@ blockquote footer {
   .benefits {
     grid-template-columns: 1fr 1fr 1fr;
   }
+}
+
+html[dir="rtl"] {
+  --font-body: "Source Sans 3", "Arial Hebrew", "Helvetica Neue", sans-serif;
+  --font-display: "Fraunces", "David", Georgia, serif;
+}
+
+html[dir="rtl"] .page,
+html[dir="rtl"] .display,
+html[dir="rtl"] .lede,
+html[dir="rtl"] p,
+html[dir="rtl"] h1,
+html[dir="rtl"] h2,
+html[dir="rtl"] h3,
+html[dir="rtl"] blockquote {
+  text-align: start;
 }

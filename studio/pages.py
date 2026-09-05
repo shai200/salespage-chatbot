@@ -20,6 +20,26 @@ SECTION_IMPORTS = (
     "Footer",
 )
 
+HEBREW_RE = re.compile(r"[\u0590-\u05FF]")
+
+
+def _collect_text(value: Any) -> str:
+    if isinstance(value, dict):
+        return " ".join(_collect_text(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return " ".join(_collect_text(item) for item in value)
+    return str(value or "")
+
+
+def detect_language(copy: dict[str, Any], extras: str = "") -> tuple[str, str]:
+    explicit = str((copy or {}).get("language") or "").strip().lower()
+    if explicit in {"he", "hebrew", "iw"}:
+        return "he", "rtl"
+    blob = f"{_collect_text(copy)} {extras}"
+    if len(HEBREW_RE.findall(blob)) >= 5:
+        return "he", "rtl"
+    return "en", "ltr"
+
 
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
@@ -67,6 +87,7 @@ const page = {{
     subheadline: {_jsx_string(hero.get("subheadline"))},
     ctaLabel: {_jsx_string(hero.get("ctaLabel"))},
     visualLabel: {_jsx_string(hero.get("visualLabel"))},
+    src: {_jsx_string(hero.get("src"))},
   }},
   problem: {{
     title: {_jsx_string(problem.get("title"))},
@@ -112,16 +133,33 @@ export default function App() {{
     (site_dir / "App.jsx").write_text(source, encoding="utf-8")
 
 
-def page_data_from_copy(copy: dict[str, Any], visuals: dict[str, Any], intake: dict[str, str]) -> dict[str, Any]:
+def page_data_from_copy(
+    copy: dict[str, Any],
+    visuals: dict[str, Any],
+    intake: dict[str, str],
+    user_message: str = "",
+) -> dict[str, Any]:
     cta_label = (copy.get("cta") or {}).get("label") or intake.get("cta") or "Get started"
+    extras = " ".join(
+        [
+            user_message,
+            intake.get("offer") or "",
+            intake.get("audience") or "",
+            intake.get("cta") or "",
+        ]
+    )
+    language, direction = detect_language(copy, extras)
     return {
         "title": copy.get("headline") or intake.get("offer") or "Sales page",
+        "language": language,
+        "dir": direction,
         "hero": {
             "headline": copy.get("headline") or intake.get("offer"),
             "accent": copy.get("headline_accent") or "",
             "subheadline": copy.get("subheadline") or "",
             "ctaLabel": cta_label,
             "visualLabel": (visuals.get("hero") or {}).get("label") or "Visual pending",
+            "src": (visuals.get("hero") or {}).get("src") or "",
         },
         "problem": copy.get("problem") or {"title": "", "body": ""},
         "benefits": copy.get("benefits") or [],

@@ -47,9 +47,12 @@ const body = renderPage();
 const css = readFileSync(join(siteDir, "tokens.css"), "utf8");
 const page = JSON.parse(readFileSync(join(siteDir, "page.json"), "utf8"));
 const title = page.title || "Sales page";
+const lang = page.language || page.lang || "en";
+const dir = page.dir || (lang === "he" ? "rtl" : "ltr");
+const dirAttr = dir === "rtl" ? ' dir="rtl"' : "";
 
 const html = `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}"${dirAttr}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">

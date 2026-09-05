@@ -22,6 +22,7 @@
 - [x] 4.3 Call OpenRouter from the language nodes and verify a successful copy stage returns non-empty copy (or a clear gateway error)
 - [x] 4.4 Implement short intake (offer, audience, CTA) before the first full generate and verify an incomplete first message does not publish a page
 - [x] 4.5 Implement placeholder visuals when no image provider is configured and verify a page still publishes with placeholders
+- [x] 4.6 Call OpenRouter `POST /api/v1/images` from the visual node (default model `meta/muse-image`), save `b64_json` PNGs under `sites/<slug>/`, wire paths into the page, and verify a successful response produces an on-disk image; on API failure keep placeholders (4.5)
 
 ## 5. Local hosting
 

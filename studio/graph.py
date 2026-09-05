@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import base64
+import json
+import os
 import sqlite3
 from typing import Any, TypedDict
 
+import httpx
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 
@@ -114,18 +118,89 @@ def copywriter_node(state: StudioState) -> dict[str, Any]:
     return {"copy": copy, "stages_run": _append_stage(state, "copywriter")}
 
 
-def visual_node(state: StudioState) -> dict[str, Any]:
-    if state.get("skip_visual") and state.get("visuals"):
-        return {"stages_run": _append_stage(state, "visual")}
-    visuals = {
+def _placeholder_visuals(note: str | None = None) -> dict[str, Any]:
+    return {
         "provider": None,
         "images_pending": True,
         "hero": {"type": "placeholder", "label": "Hero visual pending"},
-        "note": "Images are pending — no image provider is configured.",
+        "note": note
+        or "Images are pending — the page uses placeholders.",
     }
+
+
+def _hero_image_prompt(state: StudioState) -> str:
+    copy = state.get("copy") or {}
+    offer = state.get("offer") or "a product"
+    audience = state.get("audience") or "buyers"
+    headline = copy.get("headline") or offer
+    return (
+        f"Editorial hero photograph for a sales page. Offer: {offer}. "
+        f"Audience: {audience}. Headline: {headline}. "
+        "Clean, high-end, no text overlay, no logos."
+    )
+
+
+def fetch_openrouter_images(prompt: str) -> list[bytes]:
+    if config.STUDIO_FAKE_LLM:
+        raise RuntimeError("image generation skipped in fake-llm mode")
+    api_key = os.environ.get("OPENROUTER_API_KEY") or config.OPENROUTER_API_KEY
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not configured")
+    model = os.environ.get("OPENROUTER_IMAGE_MODEL") or config.OPENROUTER_IMAGE_MODEL
+    url = f"{config.OPENROUTER_BASE_URL.rstrip('/')}/images"
+    response = httpx.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        content=json.dumps({"model": model, "prompt": prompt}),
+        timeout=90,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    images = []
+    for image in payload.get("data") or []:
+        encoded = image.get("b64_json")
+        if encoded:
+            images.append(base64.b64decode(encoded))
+    if not images:
+        raise RuntimeError("OpenRouter image API returned no images")
+    return images
+
+
+def visual_node(state: StudioState) -> dict[str, Any]:
+    if state.get("skip_visual") and state.get("visuals"):
+        return {"stages_run": _append_stage(state, "visual")}
+
+    conversation = db.get_conversation(state["conversation_id"]) or {}
+    slug = conversation.get("slug") or state.get("slug")
+    if not slug:
+        slug = pages.unique_slug(state.get("offer") or "sales-page", state["conversation_id"])
+    site_dir = db.conversation_site_dir(slug)
+    db.update_conversation(state["conversation_id"], slug=slug)
+
+    visuals = _placeholder_visuals()
+    try:
+        images = fetch_openrouter_images(_hero_image_prompt(state))
+        site_dir.mkdir(parents=True, exist_ok=True)
+        dest = site_dir / "hero.png"
+        dest.write_bytes(images[0])
+        visuals = {
+            "provider": "openrouter",
+            "images_pending": False,
+            "hero": {"type": "image", "src": "hero.png", "label": "Hero"},
+            "note": "",
+        }
+    except Exception as exc:
+        visuals = _placeholder_visuals(
+            f"Images are pending — OpenRouter image request failed ({exc})."
+        )
+
     return {
         "visuals": visuals,
-        "images_pending": True,
+        "slug": slug,
+        "images_pending": bool(visuals.get("images_pending")),
         "stages_run": _append_stage(state, "visual"),
     }
 
@@ -144,6 +219,7 @@ def page_engineer_node(state: StudioState) -> dict[str, Any]:
             "audience": state.get("audience") or "",
             "cta": state.get("cta") or "",
         },
+        user_message=state.get("user_message") or "",
     )
     pages.write_site(site_dir, page_data)
     db.update_conversation(
@@ -162,8 +238,9 @@ def publisher_node(state: StudioState) -> dict[str, Any]:
     hosted = publisher.ensure_hosted(conversation)
     url = config.preview_url(int(hosted["port"]))
     note = ""
-    if (state.get("visuals") or {}).get("images_pending"):
-        note = "\n\nImages are pending — the page uses placeholders."
+    visuals = state.get("visuals") or {}
+    if visuals.get("images_pending"):
+        note = f"\n\n{visuals.get('note') or 'Images are pending — the page uses placeholders.'}"
     message = (
         f"Your sales page is live:\n{url}\n\n"
         "Open that link in a new tab, or use the preview pane."
