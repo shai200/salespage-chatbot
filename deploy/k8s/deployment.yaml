@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: studio
+  namespace: homerun
+  labels:
+    app: studio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: studio
+  template:
+    metadata:
+      labels:
+        app: studio
+    spec:
+      containers:
+        - name: studio
+          image: ghcr.io/shai200/salespage-chatbot:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: studio
+            - secretRef:
+                name: openrouter
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: sites
+              mountPath: /app/sites
+            - name: ssh
+              mountPath: /etc/homerun/ssh
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: studio-data
+        - name: sites
+          persistentVolumeClaim:
+            claimName: studio-sites
+        - name: ssh
+          secret:
+            secretName: pages-ssh
+            optional: true
+            defaultMode: 0400

@@ -22,6 +22,7 @@ cd pagekit && npm install && cd ..
 # OPENROUTER_API_KEY=sk-or-...
 # optional: OPENROUTER_MODEL=openai/gpt-4o-mini
 # optional: OPENROUTER_IMAGE_MODEL=meta/muse-image
+# optional: OPENROUTER_EMBED_MODEL=google/gemini-embedding-2
 
 python -m studio
 ```
@@ -53,14 +54,15 @@ Product work goes through an OpenSpec **change** (`openspec/changes/<name>/`):
 
 Cursor skills under `.cursor/skills/openspec-*` drive propose → apply → archive. Schema: `spec-driven` (`openspec/config.yaml`).
 
-**Capabilities:** `studio-chat`, `generation-pipeline`, `local-hosting`, `static-hosting`.
+**Capabilities:** `studio-chat`, `generation-pipeline`, `local-hosting`, `static-hosting`, `copy-guides`.
 
 | Change | Status | What it captured |
 |---|---|---|
 | `sales-page-studio` | Implemented | Studio, LangGraph pipeline, SQLite, React pages, local preview |
 | `fix-composer-and-hebrew-rtl` | Implemented | Composer pin, optimistic send, Hebrew RTL, Markdown, pipeline progress |
 | `studio-status-preview-empty` | Implemented | Status pills, preview toolbar, first-run empty state, IBM Plex |
-| `deploy-homerun-civo` | In progress | Path publish, Docker rehearsal; Civo apply not done |
+| `deploy-homerun-civo` | In progress | Path publish on Civo at `homerun.love/<slug>/`; cluster apply not done |
+| `copywriter-rag` | Specified | PDF copy guides → sqlite-vec; craft notes at copy time (not applied) |
 
 Canonical specs are **not** archived into `openspec/specs/` yet. Until `/opsx-archive` + sync, the change folders are the source of truth. [ADR 0001](docs/adr/0001-static-node-chatbot.md) describes the old Node regex prototype and is **superseded**.
 
@@ -78,8 +80,11 @@ http://localhost:8080          studio (FastAPI)
       |     intake -> copywriter -> visual -> page_engineer -> publisher
       +-- SQLite  data/studio.sqlite
       |     conversations, messages, LangGraph checkpoints
+      +-- SQLite  data/rag.sqlite   (specified)
+      |     copy guides, chunks, sqlite-vec KNN
       +-- OpenRouter
             chat completions (copy / intake)
+            embeddings (guide ingest / retrieve)
             /images (hero PNG)
 ```
 
@@ -95,9 +100,9 @@ One process, one origin. Reserved paths stay the studio; every other first segme
 
 **Remote models, local everything else.** `OPENROUTER_API_KEY` in gitignored `.env`. Defaults: `openai/gpt-4o-mini` (chat), `meta/muse-image` (hero). No Ollama, no in-cluster GPU.
 
-**SQLite as the only database.** One machine, one operator. Conversations, messages, and LangGraph checkpoints share `data/studio.sqlite`. Site bytes stay under `sites/<slug>/`.
+**SQLite as the only database.** One machine, one operator. Conversations, messages, and LangGraph checkpoints stay in `data/studio.sqlite`. Copywriting-guide RAG uses a **second** file, `data/rag.sqlite`, with **sqlite-vec** for KNN — wipe and re-ingest without touching threads. Postgres / pgvector are out of scope. Site bytes stay under `sites/<slug>/`. Operator PDFs live in `guides/` (gitignored); ingest is a command, not a chat turn.
 
-**Path publish, not a process per page.** Early design spawned Node on `3000, 3001, …`. Publish is now: write `sites/.staging/<slug>/`, replace `sites/<slug>/`, serve `{origin}/{slug}/`. Same contract locally and later on Civo (`https://homerun.love/<slug>/`).
+**Path publish, not a process per page.** Early design spawned Node on `3000, 3001, …`. Publish is now: write `sites/.staging/<slug>/`, replace `sites/<slug>/`, serve `{origin}/{slug}/`. Same contract locally and on Civo (`https://homerun.love/<slug>/`).
 
 ### LangGraph pipeline
 
@@ -115,7 +120,7 @@ START --> intake --> copywriter --> visual --> page_engineer --> publisher --> E
 | Node | Job |
 |---|---|
 | **intake** | Merge offer, audience, CTA. Incomplete brief asks for what’s missing and stops. |
-| **copywriter** | OpenRouter chat → JSON sales copy (headline, sections, CTA, language). |
+| **copywriter** | Retrieve a few guide passages (offer + audience + operator message), then OpenRouter chat → JSON sales copy. Notes are craft guidance, not quotes. Empty index → today’s brief-only prompt. |
 | **visual** | OpenRouter `/images` → `hero.png`. Failure keeps placeholders (`images_pending`). Copy-only edits skip this node. |
 | **page_engineer** | Write React + `page.json`, prerender (`pagekit/prerender.mjs`). Hebrew gets `lang="he"` `dir="rtl"`. |
 | **publisher** | Promote staging → live `sites/<slug>/`, return `{origin}/{slug}/`. No Node spawn. |
@@ -132,9 +137,13 @@ Copy-only follow-ups use word-boundary matching. Image words never skip the visu
 - `messages` — user and assistant rows. The first-run starter is chrome, not a stored message.
 - LangGraph `SqliteSaver` checkpoints — same file, keyed by conversation id.
 
+**RAG SQLite** (`data/rag.sqlite`, gitignored, specified): file registry, chunk text, sqlite-vec embeddings. Same `studio-data` PVC on Civo. No extra Service. Load sqlite-vec only on this connection.
+
 **Filesystem** (`sites/<slug>/`, gitignored): prerendered `index.html`, `hero.png`, `page.json`, React source. Staging: `sites/.staging/<slug>/` until promote.
 
-Restart restores the list and thread from SQLite. Live HTML is already on disk.
+**Guides** (`guides/*.pdf`, gitignored): operator copywriting PDFs. Ingest hashes, chunks (~500–800 tokens), embeds via OpenRouter (`OPENROUTER_EMBED_MODEL`, default `google/gemini-embedding-2`). Unchanged files skip re-embed. Retrieval failure never blocks generate.
+
+Restart restores the list and thread from SQLite. Live HTML is already on disk. Re-ingest rebuilds `rag.sqlite` only.
 
 ### Studio UI
 
@@ -157,14 +166,16 @@ White background, `#0a0a0a` text, one accent. Sections only: Hero, Problem, Bene
 
 **Docker rehearsal.** `Dockerfile` + `docker-compose.yml` + `deploy/nginx-edge.conf`: studio writes a `sites` volume; nginx serves reserved paths to the studio and `/<slug>/` from the volume. Host port **8081** so it does not collide with a studio on 8080.
 
-**Civo (specified, not applied).** Same volume contract: studio writes `sites`, pages pod reads them, Ingress splits reserved paths vs slugs. TLS for `homerun.love`. `civo-love-kubeconfig` is gitignored. The write *is* the deploy — no `kubectl cp`.
+**Civo.** Same write: studio promotes onto the `studio-sites` PVC (`/app/sites/<slug>/`). Ingress sends `homerun.love/` to that Service. FastAPI serves reserved paths as the studio and `/<slug>/` as pages (`SERVE_SITES=true`). `PUBLIC_BASE_URL=https://homerun.love`. TLS for that host. `civo-love-kubeconfig` is gitignored. The write *is* the deploy — no rsync, no `kubectl cp`.
 
-`PUBLIC_BASE_URL` overrides link origin (`https://homerun.love` in cluster). Unset, links are `http://localhost:8080/<slug>/`.
+Copying HTML to a cheap VPS is later, not this slice.
 
 ### Out of scope
 
 - Auth, multi-tenant SaaS, local LLMs
 - Visitor chat on the generated page
+- Postgres / pgvector for guide search
+- OCR for scanned guide PDFs
 - Per-page Kubernetes pods or sequential preview ports
 - Archiving OpenSpec deltas into `openspec/specs/`
 - Applying cluster manifests
@@ -174,11 +185,29 @@ White background, `#0a0a0a` text, one accent. Sections only: Hero, Problem, Bene
 | Path | What |
 |---|---|
 | `studio/` | FastAPI, graph, DB, publisher, page writer, OpenRouter client |
+| `guides/` | Operator copywriting PDFs (gitignored; ingest → `data/rag.sqlite`) |
 | `web/` | Studio SPA |
 | `pagekit/` | Sales-page kit + prerender |
 | `openspec/changes/` | Proposals, specs, designs, tasks |
 | `docs/adr/0001-static-node-chatbot.md` | Superseded prototype ADR |
 | `docs/archive/prototype-sdd.md` | Archived visitor-bot SDD |
+
+## Deploy to Civo (`homerun.love`)
+
+Repeatable rollout (build → push → apply → wait):
+
+```bash
+cp deploy/civo.env.example deploy/civo.env   # once: set IMAGE_REPO
+# docker login to that registry
+# kubectl via civo-love-kubeconfig (gitignored)
+./deploy/deploy.sh
+```
+
+Later versions: commit, then `./deploy/deploy.sh` again. Same command updates the image tag (git SHA) and rolls the `studio` Deployment. PVCs keep SQLite and published `sites/<slug>/`.
+
+`--skip-build` only reapplies manifests. `--dry-run` server-validates YAML.
+
+This Ingress **claims `homerun.love`**. The host currently serves a Next.js app; the first deploy replaces that apex. Studio + `/<slug>/` are one Service (FastAPI). TLS expects Traefik / a `homerun-love-tls` secret.
 
 ## Old prototype (port 3000)
 

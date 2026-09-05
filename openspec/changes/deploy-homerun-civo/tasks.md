@@ -12,7 +12,8 @@
 - [ ] 2.2 Add Compose + edge nginx (reserved paths → studio, other `/<slug>/` → `/sites`), and verify `docker compose up` serves `/` as Homerun
 - [ ] 2.3 Smoke a fixture site on the shared volume at `/<slug>/`, and verify `GET /missing-slug/` is 404 not the studio UI
 
-## 3. Civo (after Docker is green)
+## 3. Civo path hosting
 
-- [ ] 3.1 Add cluster manifests (studio, pages nginx, PVCs, secret, ingress) matching the Compose volume contract, and verify they render/apply dry-run
-- [ ] 3.2 Apply to Civo and point `homerun.love` at the load balancer, and verify `/` and a generated `/<slug>/` over TLS
+- [x] 3.1 Add cluster manifests and `deploy/deploy.sh` for the studio Service + Ingress on Civo, and verify the script and YAML exist
+- [x] 3.2 Set cluster `SERVE_SITES=true` and `PUBLIC_BASE_URL=https://homerun.love` (rsync unset) so FastAPI serves `/<slug>/` from the `studio-sites` PVC, and verify pytest covers that origin plus a served page after a simulated restart
+- [ ] 3.3 Run `./deploy/deploy.sh` against Civo and verify the studio at `https://homerun.love/` plus a generated page at `https://homerun.love/<slug>/`

@@ -12,6 +12,9 @@ def studio_env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "SITES_DIR", tmp_path / "sites")
     monkeypatch.setattr(config, "STUDIO_FAKE_LLM", True)
     monkeypatch.setattr(config, "OPENROUTER_API_KEY", "")
+    monkeypatch.setattr(config, "PAGE_RSYNC_TARGET", "")
+    monkeypatch.setattr(config, "PAGE_SSH_KEY", "")
+    monkeypatch.setattr(config, "SERVE_SITES", True)
     graph.reset_runtime()
     db.init()
     yield {

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: studio
+  namespace: homerun
+data:
+  STUDIO_HOST: "0.0.0.0"
+  STUDIO_PORT: "8080"
+  PUBLISH_MODE: static
+  SERVE_SITES: "1"
+  PUBLIC_BASE_URL: "https://homerun.love"
+  PAGE_RSYNC_TARGET: ""

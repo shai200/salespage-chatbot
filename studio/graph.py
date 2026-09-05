@@ -301,7 +301,15 @@ def publisher_node(state: StudioState) -> dict[str, Any]:
     conversation = db.get_conversation(state["conversation_id"])
     if not conversation:
         return {"error": "Conversation disappeared before publish."}
-    hosted = publisher.ensure_hosted(conversation)
+    try:
+        hosted = publisher.ensure_hosted(conversation)
+    except Exception as exc:
+        return {
+            "error": str(exc),
+            "assistant_message": str(exc),
+            "stages_run": _append_stage(state, "publisher"),
+        }
+    hosted = hosted or conversation
     url = config.preview_url(port=hosted.get("port"), slug=hosted.get("slug") or state.get("slug") or "")
     note = ""
     visuals = state.get("visuals") or {}

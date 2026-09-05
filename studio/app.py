@@ -189,9 +189,10 @@ def studio_root():
 def studio_spa(path: str):
     if path.startswith("api/") or path == "health":
         raise HTTPException(status_code=404)
-    published = _published_site_file(path)
-    if published:
-        return FileResponse(published)
+    if config.SERVE_SITES:
+        published = _published_site_file(path)
+        if published:
+            return FileResponse(published)
     candidate = config.WEB_DIST / path
     if candidate.is_file():
         return FileResponse(candidate)

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
-from studio import config, db, graph, intake, llm, pages
+from studio import config, db, graph, intake, llm, pages, publisher
 
 
 def test_health_ok(client):
@@ -286,6 +287,88 @@ def test_site_files_are_isolated(studio_env):
     assert (two / "App.jsx").exists()
     assert "Alpha" in (one / "index.html").read_text(encoding="utf-8")
     assert "Beta" in (two / "index.html").read_text(encoding="utf-8")
+
+
+def test_published_page_survives_client_restart(studio_env, client):
+    conversation = db.create_conversation()
+    result = graph.run_turn(
+        conversation["id"],
+        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+    )
+    slug = result["slug"]
+    first = client.get(f"/{slug}/")
+    assert first.status_code == 200
+    assert "Launch kit" in first.text
+    from fastapi.testclient import TestClient
+
+    from studio.app import app
+
+    with TestClient(app) as restarted:
+        again = restarted.get(f"/{slug}/")
+        assert again.status_code == 200
+        assert "Launch kit" in again.text
+
+
+def test_rsync_copies_site_when_target_set(studio_env, monkeypatch):
+    monkeypatch.setattr(config, "PAGE_RSYNC_TARGET", "user@vps:/var/www/pages")
+    monkeypatch.setattr(config, "PAGE_SSH_KEY", "/etc/homerun/ssh/id_ed25519")
+    monkeypatch.setattr(config, "PUBLIC_BASE_URL", "https://pages.example")
+    calls: list[list[str]] = []
+    real_run = subprocess.run
+
+    def fake_run(command, **kwargs):
+        if command and command[0] == "rsync":
+            calls.append(list(command))
+            return subprocess.CompletedProcess(command, 0, "", "")
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(publisher.subprocess, "run", fake_run)
+    conversation = db.create_conversation()
+    result = graph.run_turn(
+        conversation["id"],
+        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+    )
+    slug = result["slug"]
+    assert result["preview_url"] == f"https://pages.example/{slug}/"
+    assert result.get("error") in (None, "")
+    assert calls
+    command = calls[0]
+    assert command[0] == "rsync"
+    assert "-az" in command
+    assert "--delete" in command
+    assert command[-1] == f"user@vps:/var/www/pages/{slug}/"
+    assert "-i" in command[command.index("-e") + 1]
+
+
+def test_rsync_failure_blocks_publish(studio_env, monkeypatch):
+    monkeypatch.setattr(config, "PAGE_RSYNC_TARGET", "user@vps:/var/www/pages")
+
+    real_run = subprocess.run
+
+    def fake_run(command, **kwargs):
+        if command and command[0] == "rsync":
+            return subprocess.CompletedProcess(command, 1, "", "permission denied")
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(publisher.subprocess, "run", fake_run)
+    conversation = db.create_conversation()
+    result = graph.run_turn(
+        conversation["id"],
+        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+    )
+    assert "Page copy to VPS failed" in (result.get("error") or "")
+    assert "permission denied" in (result.get("assistant_message") or "")
+
+
+def test_serve_sites_off_does_not_expose_html(studio_env, monkeypatch, client):
+    monkeypatch.setattr(config, "SERVE_SITES", False)
+    conversation = db.create_conversation()
+    result = graph.run_turn(
+        conversation["id"],
+        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+    )
+    page = client.get(f"/{result['slug']}/")
+    assert page.status_code == 404
 
 
 def test_two_conversations_get_distinct_slug_urls(studio_env, client):

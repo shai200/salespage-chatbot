@@ -1,84 +1,84 @@
 ## Context
 
-See `proposal.md`. Today `page_engineer` writes `sites/<slug>/` (prerendered `index.html`, relative `hero.png`) and `publisher.ensure_hosted` spawns `pagekit/serve.mjs` on port 3000+. `config.preview_url(port)` is `http://localhost:{port}/`. FastAPI binds `127.0.0.1`. There is no Docker image. Civo apply is out of the first slice; Docker Compose is the rehearsal.
+See `proposal.md`. Generate already writes prerendered `sites/<slug>/` and FastAPI serves `/{slug}/` locally. Civo manifests exist but were briefly pointed at a VPS copy. This slice puts pages on `homerun.love/<slug>/` from the studio PVC.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Make “deploy a page” = write files onto a volume the edge already serves.
-- Prove that in Docker: studio + nginx, one `sites` volume, URLs like `http://localhost:8081/<slug>/` (8081 so it does not collide with a host studio on 8080).
-- Keep `python -m studio` on the host; pages are served by that same process at `/<slug>/`.
+- Make “deploy a page” = write files onto a volume the studio already serves.
+- Same URL shape locally and on Civo: `{origin}/{slug}/`.
+- Apply the studio to Civo so `https://homerun.love/` is Homerun and `https://homerun.love/<slug>/` is a generated page.
 
 **Non-Goals:**
 
-- Applying manifests to Civo in this slice.
+- Copying HTML to a VPS (later).
+- A separate nginx pages pod or shared RWX volume.
 - Per-page Kubernetes pods or `kubectl cp`.
 - Pretty slugs without the id suffix.
 - Multi-replica SQLite.
+- Auth.
 
 ## Decisions
 
-### 1. Publish process (the copy)
+### 1. Publish process (no second copy)
 
 ```
 generate
   intake -> copywriter -> visual -> page_engineer
-      write sites/.staging/<slug>/   (full site, including index.html)
-  publisher (static)
-      replace sites/<slug>/ with the staging dir   (os.replace / swap)
+      write sites/.staging/<slug>/
+  publisher
+      replace sites/<slug>/ with the staging dir
       mark published
       preview_url = PUBLIC_BASE_URL + / + slug + /
-  edge nginx
-      GET /<slug>/  ->  /sites/<slug>/index.html
+  studio (SERVE_SITES=true)
+      GET /<slug>/  ->  sites/<slug>/index.html
 ```
 
-There is no second copy into the cluster. Studio and the file server mount the same volume. Staging then replace is the deploy step so nginx never reads a half-written tree.
+On Civo, `sites/` is the `studio-sites` PVC at `/app/sites`. Staging then replace keeps a complete tree before anyone reads it.
 
-**Local mode:** same write, then spawn Node as today. Staging swap can still run so both modes share `write_site`.
+`PAGE_RSYNC_TARGET` may exist in code; it stays unset. VPS copy is a later change.
 
-**Alternative rejected:** `kubectl cp` from the studio pod (RBAC, races, extra API). **Alternative rejected:** tar upload HTTP to the pages pod (another service).
+**Alternative rejected for this slice:** rsync to a cheap VPS. **Alternative rejected:** pages pod + shared PVC. **Alternative rejected:** `kubectl cp`.
 
-### 2. `PUBLISH_MODE` + `PUBLIC_BASE_URL`
+### 2. `PUBLIC_BASE_URL` + `SERVE_SITES`
 
-- Default origin: `http://localhost:{STUDIO_PORT}`. Override with `PUBLIC_BASE_URL` (Compose `http://localhost:8081`, Civo `https://homerun.love`).
+- Default origin: `http://localhost:{STUDIO_PORT}`. Compose: `http://localhost:8081`. Civo: `https://homerun.love`.
 - `preview_url` is always `{origin}/{slug}/`.
-- FastAPI serves `sites/<slug>/` for non-reserved paths. Docker/Civo edge nginx does the same from the shared volume.
-- `STUDIO_HOST` env (default `127.0.0.1`; Docker `0.0.0.0`).
+- `SERVE_SITES=true` on Civo so FastAPI exposes slug paths. Reserved first segments (`api`, `assets`, `health`, `static`) are never slugs.
+- `STUDIO_HOST` env (default `127.0.0.1`; Docker/Civo `0.0.0.0`).
 - No per-page Node processes.
 
-### 3. Edge routing (Docker now, Civo later)
+### 3. Edge routing
 
-Reserved → studio: `/`, `/api`, `/assets`, `/health`.
+Civo Ingress (Traefik) sends all of `homerun.love/` to the studio Service `:8080`. FastAPI splits reserved paths vs slugs. First apply **replaces** the Next.js app currently on that apex. TLS: `homerun-love-tls`.
 
-Everything else: `root /sites` so `/<slug>/hero.png` → `/sites/<slug>/hero.png`. Relative assets work; CSS is already inlined in prerender.
+Docker Compose may still use nginx as a local rehearsal (`/` → studio, other `/<slug>/` → volume). That is optional and does not change the Civo contract.
 
-Docker Compose uses one nginx as both edge and pages server. Civo will split: Traefik (reserved → studio Service; rest → pages Service) + nginx pages pod with the same `root /sites`. Same volume contract.
+### 4. Studio image and persistence
 
-Reserved slug names: `api`, `assets`, `health`, `static`. `unique_slug` must not return those exactly.
+One image: Python 3.12, Node (prerender), `web/dist`, `pagekit` + `node_modules`, `pip install .`. Do not copy `.env` or kubeconfig.
 
-### 4. Studio image
+Replicas **1**, strategy **Recreate** (SQLite + RWO PVCs). `studio-data` → `/app/data`. `studio-sites` → `/app/sites`. A rollout keeps existing slugs.
 
-One image: Python 3.12, Node (prerender), `web/dist`, `pagekit` + `node_modules`, `pip install .`. Do not copy `.env` or kubeconfig. Compose passes `OPENROUTER_API_KEY` at run time. Persist `data/` and `sites/` as volumes.
+### 5. VPS is later
 
-### 5. Civo (specified, not applied yet)
-
-Namespace `homerun`. PVC for `data` and `sites`. Deployment studio (replicas 1) + Deployment pages (nginx). Secret for the API key. Ingress/TLS for `homerun.love`. Same env as Compose. Apply only after Docker smoke is green.
+Do not require `PAGE_RSYNC_TARGET`, SSH keys, or a second public origin in this slice.
 
 ## Risks / Trade-offs
 
-- [SQLite + PVC] → single studio replica.
+- [SQLite + RWO PVC] → single studio replica.
+- [Studio serves public HTML] → cluster CPU/bandwidth on the orchestrator; acceptable until traffic warrants a VPS or pages pod.
 - [In-place overwrite without swap] → brief broken HTML; mitigated by staging replace.
-- [Slug vs studio paths] → reserved-name list + nginx longest prefix.
-- [Iframe cache] → existing studio nonce still applies; URL path is stable.
-- [Existing local conversations] → unchanged; static mode is opt-in.
+- [Slug vs studio paths] → reserved-name list.
+- [Apex takeover] → first deploy replaces the live Next.js site on `homerun.love`.
 
 ## Migration Plan
 
-1. Ship config/publisher/Dockerfile/Compose.
-2. `docker compose up --build` and smoke `/` plus a fixture slug.
-3. Write Civo manifests; apply in a later session.
+1. Point cluster ConfigMap at Civo path hosting (`SERVE_SITES=true`, `PUBLIC_BASE_URL=https://homerun.love`).
+2. Apply `./deploy/deploy.sh`.
+3. Generate a page and confirm `https://homerun.love/<slug>/`.
 
 ## Open Questions
 
-None that block the Docker slice. Civo storage class and Traefik vs nginx-ingress can wait until apply-to-cluster.
+None that block this slice.

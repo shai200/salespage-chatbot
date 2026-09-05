@@ -1,29 +1,29 @@
 ## Why
 
-Homerun is a local studio: one FastAPI process plus a Node server per sales page on sequential localhost ports. We need the same product on Civo at `https://homerun.love` (orchestrator) and `https://homerun.love/<slug>/` (static pages) without running a process per page. Prove the image and the write-to-volume publish path in Docker locally before touching the cluster.
+Homerun’s studio belongs on Civo at `https://homerun.love`. Generated sales pages are static HTML already written under `sites/<slug>/`. The first production publish is the same path contract as local: serve them at `https://homerun.love/<slug>/` from the studio volume. Copying HTML to a cheap VPS is a later change, not this slice.
 
 ## What Changes
 
-- Add a **static publish mode**: after `sites/<slug>/` is written, do not spawn Node or allocate ports. The public URL is `{PUBLIC_BASE_URL}/{slug}/`.
-- Treat “deploy the page” as **writing (then promoting) files onto a shared volume** that a static file server reads. No `kubectl cp`, no per-page pods.
-- Add a **Dockerfile** for the studio (Python + Node prerender + `web/dist`) and a local **Compose** stack that mimics Civo: studio writes `/sites`, an edge nginx serves reserved paths to the studio and all other `/<slug>/` paths from that volume.
-- Local and cluster both publish at `/{slug}/`. Local default is `http://localhost:8080/<slug>/` served by the studio process. No per-page ports.
-- Defer live Civo apply until Docker local is green. Manifests and DNS/TLS are specified but not required to ship in the first apply slice.
+- Civo runs the studio (FastAPI + LangGraph) and serves published pages from the same process.
+- Generate promotes `sites/.staging/<slug>/` → `sites/<slug>/` on the `studio-sites` PVC. That write *is* publish. No rsync, `kubectl cp`, or pages pod.
+- Ingress sends `homerun.love/` to the studio Service. Reserved paths stay the app; other first segments are pages (or 404).
+- Preview / Open / chat URLs use `https://homerun.love/<slug>/`.
+- Local default unchanged: `http://localhost:8080/<slug>/`.
+- Repeatable `./deploy/deploy.sh` rolls the studio image. First apply replaces the current Next.js app on the apex.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `static-hosting`: Path-based static publish of generated pages (`{origin}/{slug}/`), shared volume as the deploy step, reserved prefixes so slugs cannot steal the studio.
+- `static-hosting`: Generate a site directory and serve `{origin}/{slug}/` from it (local FastAPI; Civo FastAPI + PVC).
 
 ### Modified Capabilities
 
 - `local-hosting`: Local publish uses slug paths on port 8080 instead of sequential page ports.
-- `studio-chat`: Preview / Open / chat URLs MUST use the static public URL when static publish is on, instead of `http://localhost:<port>/`.
+- `studio-chat`: Preview URLs follow `PUBLIC_BASE_URL` when set, otherwise the local studio origin.
 
 ## Impact
 
-- `studio/config.py`, `studio/publisher.py`, `studio/app.py`, `studio/pages.py` (promote/slug safety), listen host.
-- New `Dockerfile`, `docker-compose.yml`, `deploy/nginx-edge.conf`.
-- Later: Civo Deployments (studio + pages), PVC, Ingress, Secret. `civo-love-kubeconfig` stays gitignored.
-- Tests for static URL generation and publisher no-spawn. Docker smoke: studio `/` and a fixture `/<slug>/`.
+- Cluster ConfigMap: `SERVE_SITES=true`, `PUBLIC_BASE_URL=https://homerun.love`, `PAGE_RSYNC_TARGET` unset.
+- One studio Deployment (replicas 1, Recreate) mounts `studio-data` and `studio-sites`.
+- VPS rsync / `pages-ssh` stay in code as unused later work; this slice does not require a VPS.

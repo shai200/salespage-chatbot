@@ -13,7 +13,7 @@ RUN npm ci
 FROM python:3.12-bookworm-slim
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get install -y --no-install-recommends nodejs rsync openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./

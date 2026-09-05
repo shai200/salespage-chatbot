@@ -19,6 +19,9 @@ STUDIO_PORT = int(os.getenv("STUDIO_PORT", "8080") or "8080")
 PAGE_PORT_START = 3000
 PUBLISH_MODE = os.getenv("PUBLISH_MODE", "local").strip().lower() or "local"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+PAGE_RSYNC_TARGET = os.getenv("PAGE_RSYNC_TARGET", "").strip()
+PAGE_SSH_KEY = os.getenv("PAGE_SSH_KEY", "").strip()
+SERVE_SITES = os.getenv("SERVE_SITES", "1").strip() not in {"0", "false", "no"}
 RESERVED_SLUGS = frozenset({"api", "assets", "health", "static"})
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()

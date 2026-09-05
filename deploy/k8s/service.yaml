@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: studio
+  namespace: homerun
+spec:
+  selector:
+    app: studio
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
