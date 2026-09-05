@@ -1,6 +1,6 @@
 # Homerun Sales Page Builder
 
-A **local studio chatbot that writes sales pages**, not a visitor FAQ bot. The operator talks to the studio; each conversation becomes one static sales page at `http://localhost:8080/<slug>/`.
+A **local studio chatbot that writes sales pages**. The operator talks to the studio; each conversation becomes one static sales page at `http://localhost:8080/<slug>/`.
 
 This is an **OpenSpec** project. Orchestration is **LangGraph** (LangChain chat client → OpenRouter). Memory is **SQLite** plus files on disk.
 
