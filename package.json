@@ -1,0 +1,17 @@
+{
+  "name": "salespage-chatbot",
+  "version": "1.0.0",
+  "description": "Minimal sales page chatbot prototype with SDD, OpenSpec, and ADR documentation.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test src/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://localhost:26831/shai200/salespage-chatbot"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
