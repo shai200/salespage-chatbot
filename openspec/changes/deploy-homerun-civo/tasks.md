@@ -8,9 +8,9 @@
 
 ## 2. Docker local rehearsal
 
-- [ ] 2.1 Add a studio Dockerfile (Python + Node prerender + web dist + pagekit) that does not copy `.env` or kubeconfig, and verify `docker build` succeeds
-- [ ] 2.2 Add Compose + edge nginx (reserved paths → studio, other `/<slug>/` → `/sites`), and verify `docker compose up` serves `/` as Homerun
-- [ ] 2.3 Smoke a fixture site on the shared volume at `/<slug>/`, and verify `GET /missing-slug/` is 404 not the studio UI
+- [x] 2.1 Add a studio Dockerfile (Python + Node prerender + web dist + pagekit) that does not copy `.env` or kubeconfig, and verify `docker build` succeeds
+- [x] 2.2 Add Compose + edge nginx (reserved paths → studio, other `/<slug>/` → `/sites`), and verify `docker compose up` serves `/` as Homerun
+- [x] 2.3 Smoke a fixture site on the shared volume at `/<slug>/`, and verify `GET /missing-slug/` is 404 not the studio UI
 
 ## 3. Civo path hosting
 
