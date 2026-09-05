@@ -188,9 +188,10 @@ def test_message_stream_reports_stages(client):
 
 
 def test_reserved_slug_is_not_exact_reserved_name():
-    slug = pages.unique_slug("api", "aaaaaaaa-bbbb")
-    assert slug != "api"
-    assert slug.startswith("page-")
+    for name in ("api", "auth", "login", "billing"):
+        slug = pages.unique_slug(name, "aaaaaaaa-bbbb")
+        assert slug != name
+        assert slug.startswith("page-")
 
 
 def test_static_publish_uses_origin_slug_url(studio_env, monkeypatch):
@@ -231,6 +232,9 @@ def test_copy_only_skip_does_not_match_instead():
     assert graph._copy_only_follow_up("render the images instead of the placeholders", True) is False
     assert graph._copy_only_follow_up("add the visuals", True) is False
     assert graph._copy_only_follow_up("make the headline punchier", True) is True
+    assert graph._copy_only_follow_up("fix the offer title", True) is True
+    assert graph._copy_only_follow_up("תקן את הכותרת", True) is True
+    assert graph._copy_only_follow_up("חדש את התמונות", True) is False
 
 
 def test_follow_up_resumes_same_thread(studio_env):
@@ -327,6 +331,55 @@ def test_image_api_failure_keeps_placeholders(studio_env, monkeypatch):
     for name in ("hero.png", "dream.png", "risk.png", "value.png"):
         assert not (site / name).exists()
     assert result.get("preview_url")
+
+
+def test_text_correction_does_not_regenerate_images(studio_env, monkeypatch):
+    calls = {"n": 0}
+
+    def fake(_prompt):
+        calls["n"] += 1
+        return [TINY_PNG]
+
+    monkeypatch.setattr(graph, "fetch_openrouter_images", fake)
+    conversation = db.create_conversation()
+    graph.run_turn(
+        conversation["id"],
+        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+    )
+    first_calls = calls["n"]
+    site = Path(db.get_conversation(conversation["id"])["site_path"])
+    before = (site / "hero.png").read_bytes()
+    graph.run_turn(conversation["id"], "Fix the offer title")
+    assert calls["n"] == first_calls
+    assert (site / "hero.png").read_bytes() == before
+
+
+def test_value_image_prompt_avoids_price_words():
+    prompts = graph._page_image_prompts(
+        {"offer": "Launch kit", "audience": "founders", "copy": {"headline": "Ship today"}}
+    )
+    lowered = prompts["value"].lower()
+    assert "price" not in lowered
+    assert "cost" not in lowered
+
+
+def test_slot_image_retries_on_400(studio_env, monkeypatch):
+    calls = []
+
+    def flaky(prompt):
+        calls.append(prompt)
+        if len(calls) == 1:
+            raise RuntimeError("OpenRouter images 400: flagged")
+        return [TINY_PNG]
+
+    monkeypatch.setattr(graph, "fetch_openrouter_images", flaky)
+    images = graph.fetch_slot_image(
+        "value",
+        "primary prompt",
+        {"offer": "Launch kit", "audience": "founders", "copy": {}},
+    )
+    assert images == [TINY_PNG]
+    assert len(calls) == 2
 
 
 def test_site_files_are_isolated(studio_env):

@@ -101,18 +101,18 @@ def next_stage(completed: str, state: StudioState) -> str | None:
 
 
 def _copy_only_follow_up(message: str, has_page: bool) -> bool:
+    """Keep existing images unless this is the first page or the operator asked for new art."""
     if not has_page:
         return False
     text = (message or "").lower()
-    # Asking for images must never skip the visual node.
-    if re.search(r"\b(image|images|visual|visuals|photo|photos|picture|placeholder)\b", text):
+    if re.search(
+        r"\b(image|images|visual|visuals|photo|photos|picture|placeholder)\b",
+        text,
+    ):
         return False
-    return bool(
-        re.search(
-            r"\b(headline|copy|wording|punchier|rewrite|text|cta|subhead)\b",
-            text,
-        )
-    )
+    if "תמונ" in text:
+        return False
+    return True
 
 
 def _append_stage(state: StudioState, name: str) -> list[str]:
@@ -202,9 +202,9 @@ def _placeholder_visuals(note: str | None = None) -> dict[str, Any]:
 
 def _brief_for_images(state: StudioState) -> tuple[str, str, str]:
     copy = state.get("copy") or {}
-    offer = state.get("offer") or "a product"
-    audience = state.get("audience") or "buyers"
-    headline = copy.get("headline") or offer
+    offer = (state.get("offer") or "a product")[:180]
+    audience = (state.get("audience") or "buyers")[:120]
+    headline = (copy.get("headline") or offer)[:160]
     return offer, audience, headline
 
 
@@ -236,12 +236,25 @@ def _page_image_prompts(state: StudioState) -> dict[str, str]:
             + shared
         ),
         "value": (
-            "How easy it is to start and how small the price feels next to the value: "
-            "a simple yes, one click, a modest cost beside a large win. Clean, light, "
-            "reassuring, high-end. "
+            "How easy the first step feels next to the size of the win: an open door, "
+            "morning light, one simple yes, the larger life already close. Clean, light, "
+            "reassuring, high-end. No currency, no receipts. "
             + shared
         ),
     }
+
+
+def _image_error_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except Exception:
+        return (response.text or "")[:240]
+    error = payload.get("error")
+    if isinstance(error, dict):
+        return str(error.get("message") or error)[:240]
+    if error:
+        return str(error)[:240]
+    return str(payload.get("message") or response.text or response.status_code)[:240]
 
 
 def fetch_openrouter_images(prompt: str) -> list[bytes]:
@@ -261,7 +274,10 @@ def fetch_openrouter_images(prompt: str) -> list[bytes]:
         content=json.dumps({"model": model, "prompt": prompt}),
         timeout=90,
     )
-    response.raise_for_status()
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"OpenRouter images {response.status_code}: {_image_error_detail(response)}"
+        )
     payload = response.json()
     images = []
     for image in payload.get("data") or []:
@@ -271,6 +287,26 @@ def fetch_openrouter_images(prompt: str) -> list[bytes]:
     if not images:
         raise RuntimeError("OpenRouter image API returned no images")
     return images
+
+
+def _fallback_image_prompt(key: str, state: StudioState) -> str:
+    offer, audience, _headline = _brief_for_images(state)
+    return (
+        f"Editorial photograph, clean, high-end, no text overlay, no logos, "
+        f"no currency, no receipts. Offer: {offer}. Audience: {audience}."
+    )
+
+
+def fetch_slot_image(key: str, prompt: str, state: StudioState) -> list[bytes]:
+    try:
+        return fetch_openrouter_images(prompt)
+    except Exception as exc:
+        if "400" not in str(exc):
+            raise
+        fallback = _fallback_image_prompt(key, state)
+        if fallback == prompt:
+            raise
+        return fetch_openrouter_images(fallback)
 
 
 def visual_node(state: StudioState) -> dict[str, Any]:
@@ -291,7 +327,7 @@ def visual_node(state: StudioState) -> dict[str, Any]:
     site_dir.mkdir(parents=True, exist_ok=True)
     for key, filename, label in PAGE_IMAGE_SLOTS:
         try:
-            images = fetch_openrouter_images(prompts[key])
+            images = fetch_slot_image(key, prompts[key], state)
             (site_dir / filename).write_bytes(images[0])
             visuals[key] = {"type": "image", "src": filename, "label": label}
             wrote += 1

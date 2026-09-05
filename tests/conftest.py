@@ -15,6 +15,14 @@ def studio_env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PAGE_RSYNC_TARGET", "")
     monkeypatch.setattr(config, "PAGE_SSH_KEY", "")
     monkeypatch.setattr(config, "SERVE_SITES", True)
+    monkeypatch.setattr(config, "STUDIO_FAKE_AUTH", True)
+    monkeypatch.setattr(config, "SESSION_SECRET", "test-session-secret")
+    monkeypatch.setattr(config, "GOOGLE_CLIENT_ID", "test-google-id")
+    monkeypatch.setattr(config, "GOOGLE_CLIENT_SECRET", "test-google-secret")
+    monkeypatch.setattr(config, "STRIPE_SECRET_KEY", "")
+    monkeypatch.setattr(config, "STRIPE_WEBHOOK_SECRET", "")
+    monkeypatch.setattr(config, "STRIPE_PAGE_ANNUAL_PRICE_ID", "price_test")
+    monkeypatch.setattr(config, "HOMERUN_LEGACY_OWNER_EMAIL", "")
     graph.reset_runtime()
     db.init()
     yield {
@@ -28,11 +36,29 @@ def studio_env(tmp_path, monkeypatch):
     graph.reset_runtime()
 
 
-@pytest.fixture
-def client(studio_env):
+def _make_client():
     from fastapi.testclient import TestClient
 
     from studio.app import app
 
-    with TestClient(app) as test_client:
+    return TestClient(app)
+
+
+@pytest.fixture
+def anon_client(studio_env):
+    with _make_client() as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def client(studio_env):
+    with _make_client() as test_client:
+        test_client.post(
+            "/auth/fake",
+            json={
+                "email": "tester@example.com",
+                "name": "Tester",
+                "google_sub": "google-sub-tester",
+            },
+        )
         yield test_client

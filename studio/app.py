@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from studio import config, db, graph, intake, leads, publisher
+from studio import auth, billing, config, db, graph, intake, leads, publisher
 
 
 class CreateConversationBody(BaseModel):
@@ -25,6 +25,12 @@ class LeadBody(BaseModel):
     email: str = ""
     phone: str = ""
     conversation_id: Optional[str] = None
+
+
+class FakeLoginBody(BaseModel):
+    email: str = "tester@example.com"
+    name: str = "Tester"
+    google_sub: str = "google-sub-tester"
 
 
 def _public_conversation(row: dict) -> dict:
@@ -59,6 +65,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Homerun Sales Page Builder", lifespan=lifespan)
+auth.attach_session(app)
 
 
 @app.get("/health")
@@ -66,22 +73,103 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/me")
+def api_me(request: Request) -> dict:
+    return {"user": auth.public_user(auth.current_user(request))}
+
+
+@app.get("/auth/google")
+async def auth_google(request: Request):
+    if config.STUDIO_FAKE_AUTH:
+        raise HTTPException(status_code=404, detail="Google OAuth is not used in fake auth")
+    client = auth.get_oauth()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured")
+    redirect = str(request.base_url).rstrip("/") + "/auth/google/callback"
+    return await client.google.authorize_redirect(request, redirect)
+
+
+@app.get("/auth/google/callback")
+async def auth_google_callback(request: Request):
+    client = auth.get_oauth()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Google sign-in is not configured")
+    token = await client.google.authorize_access_token(request)
+    profile = token.get("userinfo") or {}
+    auth.login_google_profile(request, profile)
+    return RedirectResponse(url="/", status_code=302)
+
+
+@app.post("/auth/logout")
+def auth_logout(request: Request) -> dict:
+    auth.logout(request)
+    return {"ok": True}
+
+
+@app.post("/auth/fake")
+def auth_fake(request: Request, body: Optional[FakeLoginBody] = None) -> dict:
+    if not config.STUDIO_FAKE_AUTH:
+        raise HTTPException(status_code=404, detail="Not found")
+    payload = body or FakeLoginBody()
+    user = auth.login_google_profile(
+        request,
+        {"sub": payload.google_sub, "email": payload.email, "name": payload.name},
+    )
+    return {"user": auth.public_user(user)}
+
+
+@app.get("/api/billing/status")
+def api_billing_status(request: Request) -> dict:
+    user = auth.require_user(request)
+    return billing.status_payload(user)
+
+
+@app.post("/api/billing/checkout")
+def api_billing_checkout(request: Request) -> dict:
+    user = auth.require_user(request)
+    return billing.start_checkout(user, config.public_origin())
+
+
+@app.post("/api/billing/stripe/webhook")
+async def api_stripe_webhook(request: Request) -> dict:
+    payload = await request.body()
+    if config.STUDIO_FAKE_AUTH or not config.STRIPE_WEBHOOK_SECRET:
+        event = json.loads(payload.decode() or "{}") if payload else {}
+        billing.handle_stripe_event(event)
+        return {"ok": True}
+    import stripe
+
+    sig = request.headers.get("stripe-signature", "")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, config.STRIPE_WEBHOOK_SECRET)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid Stripe signature") from exc
+    billing.handle_stripe_event(event)
+    return {"ok": True}
+
+
 @app.get("/api/conversations")
-def api_list_conversations() -> list[dict]:
-    return [_public_conversation(row) for row in db.list_conversations()]
+def api_list_conversations(request: Request) -> list[dict]:
+    user = auth.require_user(request)
+    return [_public_conversation(row) for row in db.list_conversations(user["id"])]
 
 
 @app.post("/api/conversations")
-def api_create_conversation(body: Optional[CreateConversationBody] = None) -> dict:
+def api_create_conversation(
+    request: Request, body: Optional[CreateConversationBody] = None
+) -> dict:
+    user = auth.require_user(request)
+    if db.count_conversations(user["id"]) >= config.FREE_PAGE_LIMIT and not billing.has_payment_method(
+        user
+    ):
+        raise HTTPException(status_code=402, detail=billing.create_blocked_payload(user))
     title = body.title if body else "Untitled page"
-    return _public_conversation(db.create_conversation(title=title))
+    return _public_conversation(db.create_conversation(title=title, user_id=user["id"]))
 
 
 @app.get("/api/conversations/{conversation_id}")
-def api_get_conversation(conversation_id: str) -> dict:
-    row = db.get_conversation(conversation_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+def api_get_conversation(request: Request, conversation_id: str) -> dict:
+    row = auth.owned_conversation(request, conversation_id)
     return {
         **_public_conversation(row),
         "messages": db.list_messages(conversation_id),
@@ -89,16 +177,14 @@ def api_get_conversation(conversation_id: str) -> dict:
 
 
 @app.get("/api/conversations/{conversation_id}/messages")
-def api_list_messages(conversation_id: str) -> list[dict]:
-    if not db.get_conversation(conversation_id):
-        raise HTTPException(status_code=404, detail="Conversation not found")
+def api_list_messages(request: Request, conversation_id: str) -> list[dict]:
+    auth.owned_conversation(request, conversation_id)
     return db.list_messages(conversation_id)
 
 
 @app.get("/api/conversations/{conversation_id}/leads")
-def api_list_leads(conversation_id: str) -> list[dict]:
-    if not db.get_conversation(conversation_id):
-        raise HTTPException(status_code=404, detail="Conversation not found")
+def api_list_leads(request: Request, conversation_id: str) -> list[dict]:
+    auth.owned_conversation(request, conversation_id)
     return db.list_leads(conversation_id)
 
 
@@ -148,8 +234,7 @@ def _message_payload(conversation_id: str, user: dict, result: dict) -> dict:
 
 @app.post("/api/conversations/{conversation_id}/messages")
 def api_post_message(conversation_id: str, body: PostMessageBody, request: Request):
-    if not db.get_conversation(conversation_id):
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    auth.owned_conversation(request, conversation_id)
     text = body.content.strip()
     user = db.add_message(conversation_id, "user", text)
     wants_stream = "text/event-stream" in (request.headers.get("accept") or "")
@@ -197,6 +282,11 @@ def _published_site_file(path: str) -> Path | None:
         return None
     site = (config.SITES_DIR / slug).resolve()
     if not site.is_dir() or not (site / "index.html").is_file():
+        return None
+    conversation = db.get_conversation_by_slug(slug)
+    if conversation and not billing.is_publicly_served(conversation):
+        return None
+    if conversation is None:
         return None
     rel = Path(*parts[1:]) if len(parts) > 1 else Path("index.html")
     candidate = (site / rel).resolve()

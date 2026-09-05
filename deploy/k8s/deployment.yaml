@@ -29,6 +29,8 @@ spec:
                 name: studio
             - secretRef:
                 name: openrouter
+            - secretRef:
+                name: studio-app
           volumeMounts:
             - name: data
               mountPath: /app/data

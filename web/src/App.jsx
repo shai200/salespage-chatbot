@@ -1,7 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { createConversation, getConversation, listConversations, sendMessage } from "./api.js";
+import {
+  ApiError,
+  billingStatus,
+  createConversation,
+  getConversation,
+  getMe,
+  listConversations,
+  logout,
+  sendMessage,
+  startCheckout,
+} from "./api.js";
 
 const HEBREW_RE = /[\u0590-\u05FF]/;
 
@@ -59,18 +69,22 @@ function MessageBody({ content }) {
 }
 
 export function App() {
+  const [user, setUser] = useState(undefined);
+  const [billing, setBilling] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [active, setActive] = useState(null);
   const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(null);
+  const [jobs, setJobs] = useState({});
+  const [jobErrors, setJobErrors] = useState({});
   const [error, setError] = useState("");
   const [previewNonce, setPreviewNonce] = useState(0);
   const [previewWidth, setPreviewWidth] = useState("desktop");
   const [copyNote, setCopyNote] = useState("");
   const threadRef = useRef(null);
   const composerRef = useRef(null);
+  const activeIdRef = useRef(null);
+  activeIdRef.current = activeId;
 
   async function refreshList(selectId) {
     const rows = await listConversations();
@@ -85,7 +99,15 @@ export function App() {
   }
 
   useEffect(() => {
-    refreshList().catch((err) => setError(err.message));
+    getMe()
+      .then((payload) => {
+        setUser(payload.user || null);
+        if (payload.user) {
+          return Promise.all([refreshList(), billingStatus().then(setBilling)]);
+        }
+        return null;
+      })
+      .catch((err) => setError(err.message));
   }, []);
 
   useEffect(() => {
@@ -93,18 +115,48 @@ export function App() {
     if (node) {
       node.scrollTop = node.scrollHeight;
     }
-  }, [active?.messages, busy]);
+  }, [active?.messages, jobs]);
 
   useEffect(() => {
-    if (active && (active.messages || []).length === 0 && !busy) {
+    if (active && (active.messages || []).length === 0 && !jobs[active.id]) {
       composerRef.current?.focus();
     }
-  }, [activeId, active?.messages?.length, busy]);
+  }, [activeId, active?.messages?.length, jobs]);
 
   async function onNew() {
     setError("");
-    const created = await createConversation();
-    await refreshList(created.id);
+    try {
+      const created = await createConversation();
+      const status = await billingStatus();
+      setBilling(status);
+      await refreshList(created.id);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 402) {
+        setError(err.payload?.message || err.message || "A card is required to create another page.");
+        const checkout = await startCheckout();
+        if (checkout?.url) {
+          window.location.assign(checkout.url);
+          return;
+        }
+        if (checkout?.ready) {
+          const created = await createConversation();
+          setBilling(await billingStatus());
+          await refreshList(created.id);
+          return;
+        }
+        return;
+      }
+      setError(err.message);
+    }
+  }
+
+  async function onSignOut() {
+    await logout();
+    setUser(null);
+    setConversations([]);
+    setActive(null);
+    setActiveId(null);
+    setBilling(null);
   }
 
   async function onSelect(id) {
@@ -115,7 +167,8 @@ export function App() {
 
   async function onSend(event) {
     event.preventDefault();
-    if (!activeId || !draft.trim() || busy) {
+    const sentId = activeId;
+    if (!sentId || !draft.trim() || jobs[sentId]) {
       return;
     }
     const text = draft.trim();
@@ -126,42 +179,68 @@ export function App() {
     };
     setDraft("");
     setError("");
-    setBusy(true);
-    setProgress({
-      label: "Working…",
-      detail: "Starting the page pipeline",
-      short: "Working",
-      steps: [],
+    setJobErrors((current) => {
+      const next = { ...current };
+      delete next[sentId];
+      return next;
     });
+    setJobs((current) => ({
+      ...current,
+      [sentId]: {
+        progress: {
+          label: "Working…",
+          detail: "Starting the page pipeline",
+          short: "Working",
+          steps: [],
+        },
+      },
+    }));
     setActive((current) =>
-      current
+      current?.id === sentId
         ? { ...current, messages: [...(current.messages || []), optimistic] }
         : current,
     );
     try {
-      await sendMessage(activeId, text, (event) => {
-        setProgress((current) => {
+      await sendMessage(sentId, text, (event) => {
+        setJobs((current) => {
+          const job = current[sentId];
+          if (!job) {
+            return current;
+          }
           const step = {
             stage: event.stage,
             label: event.label,
             detail: event.detail,
             current: true,
           };
-          const prior = (current?.steps || []).map((item) => ({ ...item, current: false }));
+          const prior = (job.progress?.steps || []).map((item) => ({ ...item, current: false }));
           const without = prior.filter((item) => item.stage !== event.stage);
           return {
-            ...event,
-            steps: [...without, step],
+            ...current,
+            [sentId]: {
+              progress: {
+                ...event,
+                steps: [...without, step],
+              },
+            },
           };
         });
       });
-      setPreviewNonce((value) => value + 1);
-      await refreshList(activeId);
+      const rows = await listConversations();
+      setConversations(rows);
+      const latest = await getConversation(sentId);
+      if (activeIdRef.current === sentId) {
+        setActive(latest);
+        setPreviewNonce((value) => value + 1);
+      }
     } catch (err) {
-      setError(err.message);
+      setJobErrors((current) => ({ ...current, [sentId]: err.message }));
     } finally {
-      setBusy(false);
-      setProgress(null);
+      setJobs((current) => {
+        const next = { ...current };
+        delete next[sentId];
+        return next;
+      });
     }
   }
 
@@ -181,7 +260,36 @@ export function App() {
   const previewUrl = active?.preview_url || "";
   const iframeSrc = previewUrl ? `${previewUrl}${previewUrl.includes("?") ? "&" : "?"}v=${previewNonce}` : "";
   const messages = active?.messages || [];
-  const activePills = useMemo(() => pagePills(active, Boolean(busy && active)), [active, busy]);
+  const activeJob = activeId ? jobs[activeId] : null;
+  const activeGenerating = Boolean(activeJob);
+  const progress = activeJob?.progress || null;
+  const threadError = (activeId && jobErrors[activeId]) || error;
+  const activePills = useMemo(
+    () => pagePills(active, activeGenerating),
+    [active, activeGenerating],
+  );
+
+  if (user === undefined) {
+    return (
+      <div className="signin">
+        <p>Loading…</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="signin">
+        <div className="signin-card">
+          <strong>Homerun</strong>
+          <p>Sign in with Google to create and manage your sales pages.</p>
+          <a className="primary-btn" href="/auth/google">
+            Sign in with Google
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -209,6 +317,16 @@ export function App() {
             New page
           </button>
         </div>
+        <div className="list-billing">
+          <span>
+            {billing
+              ? `${billing.free_used} / ${billing.free_limit} free pages`
+              : user.email}
+          </span>
+          <button className="icon-btn" type="button" onClick={onSignOut}>
+            Sign out
+          </button>
+        </div>
         <div className="list">
           {conversations.length === 0 ? (
             <p className="empty">Create a page to start. Each conversation is one sales page.</p>
@@ -227,7 +345,7 @@ export function App() {
                 >
                   {item.title}
                 </span>
-                <StatusPills pills={pagePills(item, busy && item.id === activeId)} />
+                <StatusPills pills={pagePills(item, Boolean(jobs[item.id]))} />
               </button>
             ))
           )}
@@ -240,7 +358,7 @@ export function App() {
           {active ? <StatusPills pills={activePills} /> : <span className="list-meta">No conversation</span>}
         </div>
         <div className="thread" ref={threadRef}>
-          {active && messages.length === 0 && !busy ? (
+          {active && messages.length === 0 && !activeGenerating ? (
             <div className="thread-starter">
               <p>Tell Homerun the brief:</p>
               <ul>
@@ -266,7 +384,7 @@ export function App() {
               <MessageBody content={message.content} />
             </div>
           ))}
-          {busy ? (
+          {activeGenerating ? (
             <div className="bubble pending" aria-live="polite">
               {progress?.steps?.length ? (
                 <ol className="progress-steps">
@@ -287,7 +405,7 @@ export function App() {
               )}
             </div>
           ) : null}
-          {error ? <div className="bubble">{error}</div> : null}
+          {threadError ? <div className="bubble">{threadError}</div> : null}
         </div>
         <form className="composer" onSubmit={onSend}>
           <textarea
@@ -299,8 +417,8 @@ export function App() {
             placeholder="Offer, audience, and CTA — or an edit to this page"
             disabled={!activeId}
           />
-          <button className="primary-btn" type="submit" disabled={!activeId || busy}>
-            {busy ? progress?.short || "Working" : "Send"}
+          <button className="primary-btn" type="submit" disabled={!activeId || activeGenerating}>
+            {activeGenerating ? progress?.short || "Working" : "Send"}
           </button>
         </form>
       </section>

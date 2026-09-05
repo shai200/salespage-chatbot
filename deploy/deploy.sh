@@ -4,6 +4,8 @@
 #
 #   ./deploy/deploy.sh
 #   ./deploy/deploy.sh --skip-build   # apply + rollout current IMAGE_TAG only
+#   ./deploy/deploy.sh --skip-sync    # do not replace cluster SQLite/sites with local
+#   ./deploy/pull-from-civo.sh        # one-time: merge cluster sqlite + sites into local
 #
 # Requires: docker, kubectl, kubeconfig, registry login, OPENROUTER_API_KEY in .env
 # This Ingress claims homerun.love for the studio and /<slug>/ pages (same Service).
@@ -15,15 +17,17 @@ cd "$ROOT"
 
 SKIP_BUILD=0
 SKIP_PUSH=0
+SKIP_SYNC=0
 DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1 ;;
     --skip-push) SKIP_PUSH=1 ;;
+    --skip-sync) SKIP_SYNC=1 ;;
     --dry-run) DRY_RUN=1 ;;
     -h|--help)
-      sed -n '2,12p' "$0"
+      sed -n '2,14p' "$0"
       exit 0
       ;;
     *)
@@ -58,6 +62,74 @@ need() {
     echo "missing required command: $1" >&2
     exit 1
   }
+}
+
+has_local_state() {
+  [[ -f "$ROOT/data/studio.sqlite" ]] && return 0
+  [[ -d "$ROOT/sites" ]] || return 1
+  find "$ROOT/sites" -mindepth 1 -maxdepth 1 ! -name '.staging' ! -name '.DS_Store' | grep -q .
+}
+
+wait_studio_pods_gone() {
+  if kubectl -n "$NAMESPACE" get pod -l app=studio -o name 2>/dev/null | grep -q .; then
+    kubectl -n "$NAMESPACE" wait --for=delete pod -l app=studio --timeout=90s
+  fi
+}
+
+sync_local_state() {
+  if ! has_local_state; then
+    echo "sync: no local data/studio.sqlite or published sites — skipped"
+    return 0
+  fi
+  echo "sync: replacing cluster SQLite and sites with this machine's local copies"
+  kubectl -n "$NAMESPACE" delete pod studio-sync --ignore-not-found --wait=true
+  kubectl -n "$NAMESPACE" scale deployment/studio --replicas=0
+  wait_studio_pods_gone
+  cat <<YAML | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: studio-sync
+  namespace: ${NAMESPACE}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: sync
+      image: busybox:1.36
+      command: ["sleep", "600"]
+      volumeMounts:
+        - name: data
+          mountPath: /app/data
+        - name: sites
+          mountPath: /app/sites
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: studio-data
+    - name: sites
+      persistentVolumeClaim:
+        claimName: studio-sites
+YAML
+  kubectl -n "$NAMESPACE" wait --for=condition=Ready pod/studio-sync --timeout=90s
+  kubectl -n "$NAMESPACE" exec studio-sync -- mkdir -p /app/data /app/sites
+  if [[ -d "$ROOT/data" ]]; then
+    local dbfile
+    for dbfile in studio.sqlite studio.sqlite-wal studio.sqlite-shm rag.sqlite; do
+      if [[ -f "$ROOT/data/$dbfile" ]]; then
+        kubectl cp "$ROOT/data/$dbfile" "${NAMESPACE}/studio-sync:/app/data/${dbfile}"
+        echo "sync: copied data/${dbfile}"
+      fi
+    done
+  fi
+  if [[ -d "$ROOT/sites" ]]; then
+    kubectl -n "$NAMESPACE" exec studio-sync -- sh -c 'rm -rf /app/sites/* /app/sites/.[!.]* /app/sites/..?*' || true
+    tar -C "$ROOT/sites" --exclude='.staging' --exclude='.DS_Store' --exclude='*.old' -cf - . \
+      | kubectl -n "$NAMESPACE" exec -i studio-sync -- tar -C /app/sites -xf -
+    echo "sync: copied sites/ (no .staging)"
+  fi
+  kubectl -n "$NAMESPACE" delete pod studio-sync --wait=true
+  kubectl -n "$NAMESPACE" scale deployment/studio --replicas=1
+  kubectl -n "$NAMESPACE" rollout status deployment/studio --timeout=180s
 }
 
 read_openrouter_key() {
@@ -101,6 +173,7 @@ echo "namespace: $NAMESPACE"
 echo "studio:    https://${HOST}/"
 echo "pages:     ${PUBLIC_BASE_URL}/<slug>/"
 echo "serve:     SERVE_SITES=${SERVE_SITES}"
+echo "sync:      local data/sites → cluster PVCs (use --skip-sync to keep cluster state)"
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   docker build --platform linux/amd64 -t "$IMAGE" -t "${IMAGE_REPO}:latest" "$ROOT"
@@ -133,6 +206,16 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     --namespace "$NAMESPACE" \
     --from-literal="OPENROUTER_API_KEY=${KEY}" \
     --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret generic studio-app \
+    --namespace "$NAMESPACE" \
+    --from-literal="GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}" \
+    --from-literal="GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}" \
+    --from-literal="SESSION_SECRET=${SESSION_SECRET:-}" \
+    --from-literal="STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}" \
+    --from-literal="STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}" \
+    --from-literal="STRIPE_PAGE_ANNUAL_PRICE_ID=${STRIPE_PAGE_ANNUAL_PRICE_ID:-}" \
+    --from-literal="HOMERUN_LEGACY_OWNER_EMAIL=${HOMERUN_LEGACY_OWNER_EMAIL:-}" \
+    --dry-run=client -o yaml | kubectl apply -f -
   if [[ -n "$PAGE_SSH_KEY_FILE" ]]; then
     if [[ ! -f "$PAGE_SSH_KEY_FILE" ]]; then
       echo "PAGE_SSH_KEY_FILE not found: $PAGE_SSH_KEY_FILE" >&2
@@ -149,6 +232,9 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
   fi
   kubectl -n "$NAMESPACE" set image deployment/studio "studio=${IMAGE}"
   kubectl -n "$NAMESPACE" rollout status deployment/studio --timeout=180s
+  if [[ "$SKIP_SYNC" -eq 0 ]]; then
+    sync_local_state
+  fi
 fi
 
 echo

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from studio import db, pages
+from studio import billing, db
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_OK_RE = re.compile(r"^[\d\s+\-().]+$")
@@ -26,6 +26,6 @@ def published_conversation_for_slug(slug: str) -> dict[str, Any] | None:
     row = db.get_conversation_by_slug(slug)
     if not row or not row.get("site_path"):
         return None
-    if not (pages.live_site_dir(slug) / "index.html").exists():
+    if not billing.is_publicly_served(row):
         return None
     return row

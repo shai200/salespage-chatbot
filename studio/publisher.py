@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from studio import config, db, pages
+from studio import billing, config, db, pages
 
 
 def _ssh_command() -> str:
@@ -49,7 +49,7 @@ def ensure_hosted(conversation: dict[str, Any]) -> dict[str, Any]:
         status="built",
     )
     sync_site(slug, site_dir)
-    return (
+    published = (
         db.update_conversation(
             conversation["id"],
             site_path=str(site_dir),
@@ -59,6 +59,8 @@ def ensure_hosted(conversation: dict[str, Any]) -> dict[str, Any]:
         )
         or conversation
     )
+    billing.ensure_extra_subscription(published)
+    return published
 
 
 def respawn_all() -> None:

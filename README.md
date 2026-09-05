@@ -20,6 +20,13 @@ cd pagekit && npm install && cd ..
 
 # .env is gitignored — do not commit it
 # OPENROUTER_API_KEY=sk-or-...
+# SESSION_SECRET=long-random-string
+# GOOGLE_CLIENT_ID=...
+# GOOGLE_CLIENT_SECRET=...
+# STRIPE_SECRET_KEY=sk_test_...
+# STRIPE_WEBHOOK_SECRET=whsec_...
+# STRIPE_PAGE_ANNUAL_PRICE_ID=price_...
+# optional: HOMERUN_LEGACY_OWNER_EMAIL=you@example.com
 # optional: OPENROUTER_MODEL=openai/gpt-4o-mini
 # optional: OPENROUTER_IMAGE_MODEL=meta/muse-image
 # optional: OPENROUTER_EMBED_MODEL=google/gemini-embedding-2
@@ -28,11 +35,13 @@ cd pagekit && npm install && cd ..
 python -m studio
 ```
 
-Open `http://localhost:8080`. After publish, the thread includes `http://localhost:8080/<slug>/` (opens in a new tab) and the right pane loads the same URL.
+Open `http://localhost:8080` and sign in with Google. After publish, the thread includes `http://localhost:8080/<slug>/` (opens in a new tab) and the right pane loads the same URL.
+
+Google OAuth redirect URIs: `http://localhost:8080/auth/google/callback` and `https://homerun.love/auth/google/callback`. Stripe webhook: `https://homerun.love/api/billing/stripe/webhook`. The first three pages per user are free. A fourth page asks for a card (Checkout setup mode, no charge). Each extra page starts a 12-month trial, then the Stripe Price `STRIPE_PAGE_ANNUAL_PRICE_ID` bills annually.
 
 - a page with slug `northline-briefings-85fbe9b4` → `http://localhost:8080/northline-briefings-85fbe9b4/`
 - rebuilding that conversation keeps the same path
-- `/`, `/api`, `/assets`, and `/health` stay the studio
+- `/`, `/api`, `/assets`, `/auth`, `/login`, `/billing`, and `/health` stay the studio
 - Site files: `sites/<slug>/`. SQLite: `data/studio.sqlite`
 
 If `OPENROUTER_API_KEY` is missing, generation fails in the thread and nothing is published.
@@ -112,7 +121,7 @@ One process, one origin. Reserved paths stay the studio; every other first segme
 
 **Remote models, local everything else.** `OPENROUTER_API_KEY` in gitignored `.env`. Defaults: `openai/gpt-4o-mini` (chat), `meta/muse-image` (hero). No Ollama, no in-cluster GPU.
 
-**SQLite as the only database.** One machine, one operator. Conversations, messages, and LangGraph checkpoints stay in `data/studio.sqlite`. Copywriting-guide RAG uses a **second** file, `data/rag.sqlite`, with **sqlite-vec** for KNN — wipe and re-ingest without touching threads. Postgres / pgvector are out of scope. Site bytes stay under `sites/<slug>/`. Operator PDFs live in `guides/` (gitignored); ingest is a command, not a chat turn.
+**SQLite as the only database.** Conversations are owned by a Google user (`users` + `conversations.user_id`). Messages, leads, page subscriptions, and LangGraph checkpoints stay in `data/studio.sqlite`. Copywriting-guide RAG uses a **second** file, `data/rag.sqlite`, with **sqlite-vec** for KNN — wipe and re-ingest without touching threads. Postgres / pgvector are out of scope. Site bytes stay under `sites/<slug>/`. Operator PDFs live in `guides/` (gitignored); ingest is a command, not a chat turn.
 
 **Path publish, not a process per page.** Early design spawned Node on `3000, 3001, …`. Publish is now: write `sites/.staging/<slug>/`, replace `sites/<slug>/`, serve `{origin}/{slug}/`. Same contract locally and on Civo (`https://homerun.love/<slug>/`).
 
@@ -139,15 +148,17 @@ START --> intake --> copywriter --> visual --> page_engineer --> publisher --> E
 
 The UI streams stage labels over SSE so the thread shows “Writing the page copy” instead of a blank wait.
 
-Copy-only follow-ups use word-boundary matching. Image words never skip the visual node.
+Follow-ups keep the existing images unless the operator asks for images, photos, visuals, or placeholders. Those words always rerun the visual node. Old PNGs are overwritten in place on the same slug; they are not archived.
 
 ### Memory
 
 **SQLite** (`data/studio.sqlite`, gitignored):
 
-- `conversations` — id, title, slug, site_path, status (`draft` / `built` / `published` / `error`), offer / audience / cta, optional `next_url`, `images_pending`. `port` / `pid` are leftover columns; pages no longer bind 3000+.
+- `users` — Google subject, email, name, Stripe customer id, payment-method flag.
+- `conversations` — id, `user_id`, title, slug, site_path, status (`draft` / `built` / `published` / `unpublished` / `error`), offer / audience / cta, optional `next_url`, `images_pending`. `port` / `pid` are leftover columns; pages no longer bind 3000+.
 - `messages` — user and assistant rows. The first-run starter is chrome, not a stored message.
 - `leads` — visitor name, email, phone, slug, created_at, keyed by `conversation_id`.
+- `page_subscriptions` — one Stripe subscription per extra page (trial + grace).
 - LangGraph `SqliteSaver` checkpoints — same file, keyed by conversation id.
 
 **RAG SQLite** (`data/rag.sqlite`, gitignored, specified): file registry, chunk text, sqlite-vec embeddings. Same `studio-data` PVC on Civo. No extra Service. Load sqlite-vec only on this connection.
@@ -162,8 +173,9 @@ Restart restores the list and thread from SQLite. Live HTML is already on disk. 
 
 `web/` — Vite + React, built into `web/dist`, served by FastAPI.
 
+- Sign-in with Google when there is no session; Sign out in the page list
 - App bar: Homerun + status pills + Open
-- List: Draft / Generating / Live / Error / Images pending
+- List: Draft / Generating / Live / Error / Images pending, plus free-page usage
 - Thread: Markdown, Hebrew RTL per bubble, optimistic send, pipeline steps
 - Preview: iframe with reload, copy link, open, desktop/mobile width
 
@@ -179,13 +191,13 @@ White background, `#0a0a0a` text, one accent. Sections only: Hero, Problem, Bene
 
 **Docker rehearsal.** `Dockerfile` + `docker-compose.yml` + `deploy/nginx-edge.conf`: studio writes a `sites` volume; nginx serves reserved paths to the studio and `/<slug>/` from the volume. Host port **8081** so it does not collide with a studio on 8080.
 
-**Civo.** Same write: studio promotes onto the `studio-sites` PVC (`/app/sites/<slug>/`). Ingress sends `homerun.love/` to that Service. FastAPI serves reserved paths as the studio and `/<slug>/` as pages (`SERVE_SITES=true`). `PUBLIC_BASE_URL=https://homerun.love`. TLS for that host. `civo-love-kubeconfig` is gitignored. The write *is* the deploy — no rsync, no `kubectl cp`.
+**Civo.** Same write: studio promotes onto the `studio-sites` PVC (`/app/sites/<slug>/`). Ingress sends `homerun.love/` to that Service. FastAPI serves reserved paths as the studio and `/<slug>/` as pages (`SERVE_SITES=true`). `PUBLIC_BASE_URL=https://homerun.love`. TLS for that host. `civo-love-kubeconfig` is gitignored. `./deploy/deploy.sh` also copies this machine’s `data/studio.sqlite` (and WAL) plus `sites/` onto the PVCs so local conversations and pages match the server. `--skip-sync` leaves cluster data alone.
 
 Copying HTML to a cheap VPS is later, not this slice.
 
 ### Out of scope
 
-- Auth, multi-tenant SaaS, local LLMs
+- Email/password, teams, or local LLMs
 - Visitor chat on the generated page
 - Postgres / pgvector for guide search
 - OCR for scanned guide PDFs
@@ -216,11 +228,13 @@ cp deploy/civo.env.example deploy/civo.env   # once: set IMAGE_REPO
 ./deploy/deploy.sh
 ```
 
-Later versions: commit, then `./deploy/deploy.sh` again. Same command updates the image tag (git SHA) and rolls the `studio` Deployment. PVCs keep SQLite and published `sites/<slug>/`.
+Later versions: commit, then `./deploy/deploy.sh` again. Same command updates the image tag (git SHA), rolls the `studio` Deployment, and **replaces** cluster SQLite + `sites/` with your local `data/` and `sites/` (except `.staging`). Pages and conversations you generated here show up at `https://homerun.love/<slug>/`.
 
-`--skip-build` only reapplies manifests. `--dry-run` server-validates YAML.
+`--skip-build` only reapplies manifests. `--skip-sync` keeps whatever is already on the PVCs. `--dry-run` server-validates YAML.
 
 This Ingress **claims `homerun.love`**. The host currently serves a Next.js app; the first deploy replaces that apex. Studio + `/<slug>/` are one Service (FastAPI). TLS expects Traefik / a `homerun-love-tls` secret.
+
+`./deploy/deploy.sh` also writes a `studio-app` secret from `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PAGE_ANNUAL_PRICE_ID`, and optional `HOMERUN_LEGACY_OWNER_EMAIL` (env or `.env`). Those names match `studio/config.py`.
 
 ## Old prototype (port 3000)
 

@@ -1,22 +1,56 @@
+export class ApiError extends Error {
+  constructor(message, { status = 0, payload = null } = {}) {
+    super(typeof message === "string" ? message : "Request failed");
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+function errorFromPayload(payload, fallback) {
+  const detail = payload?.detail;
+  if (detail && typeof detail === "object") {
+    return detail.message || detail.code || fallback;
+  }
+  return detail || payload?.error || fallback;
+}
+
 async function request(path, options = {}) {
   const response = await fetch(path, {
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
   });
   if (!response.ok) {
+    let payload = null;
     let detail = response.statusText;
     try {
-      const payload = await response.json();
-      detail = payload.detail || payload.error || detail;
+      payload = await response.json();
+      detail = errorFromPayload(payload, detail);
     } catch {
       // keep status text
     }
-    throw new Error(detail);
+    throw new ApiError(detail, { status: response.status, payload: payload?.detail || payload });
   }
   if (response.status === 204) {
     return null;
   }
   return response.json();
+}
+
+export function getMe() {
+  return request("/api/me");
+}
+
+export function logout() {
+  return request("/auth/logout", { method: "POST" });
+}
+
+export function billingStatus() {
+  return request("/api/billing/status");
+}
+
+export function startCheckout() {
+  return request("/api/billing/checkout", { method: "POST" });
 }
 
 export function listConversations() {
@@ -51,6 +85,7 @@ function parseSseBlock(block) {
 export async function sendMessage(id, content, onProgress) {
   const response = await fetch(`/api/conversations/${id}/messages`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
