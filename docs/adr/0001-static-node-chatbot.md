@@ -24,4 +24,4 @@ Use:
 
 ## Supersession
 
-This described the visitor FAQ prototype (`src/server.js`, `public/`). The product is the local studio chatbot (Python + React on port 8080, generated pages on 3000+). Do not treat this ADR as current architecture.
+This described the visitor FAQ prototype (`src/server.js`, `public/`). Current architecture is in the [README](../../README.md): Python + React studio on 8080, pages at `/{slug}/`. Do not treat this ADR as current.
