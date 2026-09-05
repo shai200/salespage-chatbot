@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import sqlite3
 from typing import Any, TypedDict
 
@@ -41,17 +42,15 @@ def _copy_only_follow_up(message: str, has_page: bool) -> bool:
     if not has_page:
         return False
     text = (message or "").lower()
-    markers = (
-        "headline",
-        "copy",
-        "wording",
-        "punchier",
-        "rewrite",
-        "text",
-        "cta",
-        "subhead",
+    # Asking for images must never skip the visual node.
+    if re.search(r"\b(image|images|visual|visuals|photo|photos|picture|placeholder)\b", text):
+        return False
+    return bool(
+        re.search(
+            r"\b(headline|copy|wording|punchier|rewrite|text|cta|subhead)\b",
+            text,
+        )
     )
-    return any(marker in text for marker in markers)
 
 
 def _append_stage(state: StudioState, name: str) -> list[str]:

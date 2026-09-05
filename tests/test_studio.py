@@ -116,6 +116,12 @@ def test_graph_runs_stages_in_order(studio_env):
     assert result.get("copy", {}).get("headline")
 
 
+def test_copy_only_skip_does_not_match_instead():
+    assert graph._copy_only_follow_up("render the images instead of the placeholders", True) is False
+    assert graph._copy_only_follow_up("add the visuals", True) is False
+    assert graph._copy_only_follow_up("make the headline punchier", True) is True
+
+
 def test_follow_up_resumes_same_thread(studio_env):
     conversation = db.create_conversation()
     first = graph.run_turn(
