@@ -10,3 +10,4 @@ sites/
 web/dist/
 civo-love-kubeconfig
 deploy/civo.env
+keys/
