@@ -35,3 +35,14 @@ paths:
                 properties:
                   reply:
                     type: string
+        '400':
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string

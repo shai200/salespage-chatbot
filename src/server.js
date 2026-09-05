@@ -47,6 +47,10 @@ function createServer() {
       request.on('end', () => {
         try {
           const parsed = JSON.parse(body || '{}');
+          if (typeof parsed.message !== 'string') {
+            sendJson(response, 400, { error: 'The "message" field is required.' });
+            return;
+          }
           sendJson(response, 200, { reply: generateReply(parsed.message) });
         } catch {
           sendJson(response, 400, { error: 'Invalid JSON payload' });

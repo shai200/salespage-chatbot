@@ -21,11 +21,15 @@ form.addEventListener('submit', async (event) => {
   addMessage(message, 'user');
   input.value = '';
 
-  const response = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
-  });
-  const data = await response.json();
-  addMessage(data.reply, 'bot');
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+    const data = await response.json();
+    addMessage(response.ok ? data.reply : data.error || 'Something went wrong. Please try again.', 'bot');
+  } catch {
+    addMessage('The chatbot is temporarily unavailable. Please try again in a moment.', 'bot');
+  }
 });
