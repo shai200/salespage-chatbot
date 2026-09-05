@@ -55,3 +55,16 @@ paths:
                   summary: Missing message field
                   value:
                     error: The "message" field is required.
+        '413':
+          description: Request body exceeds the supported size limit
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - error
+                properties:
+                  error:
+                    type: string
+              example:
+                error: Request body too large

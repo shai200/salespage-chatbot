@@ -52,7 +52,6 @@ function createServer() {
         if (Buffer.byteLength(body) > maxRequestBodySize) {
           requestTooLarge = true;
           sendJson(response, 413, { error: 'Request body too large' });
-          request.destroy();
         }
       });
       request.on('end', () => {
@@ -62,7 +61,7 @@ function createServer() {
 
         try {
           const parsed = JSON.parse(body || '{}');
-          if (typeof parsed.message !== 'string') {
+          if (typeof parsed.message !== 'string' || !parsed.message.trim()) {
             sendJson(response, 400, { error: 'The "message" field is required.' });
             return;
           }

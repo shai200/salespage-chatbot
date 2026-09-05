@@ -95,6 +95,42 @@ test('POST /api/chat requires a message field', async () => {
   }
 });
 
+test('POST /api/chat rejects blank messages', async () => {
+  const { server, baseUrl } = await startServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '   ' }),
+    });
+    const data = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(data.error, 'The "message" field is required.');
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test('POST /api/chat rejects non-string messages', async () => {
+  const { server, baseUrl } = await startServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 123 }),
+    });
+    const data = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(data.error, 'The "message" field is required.');
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test('POST /api/chat rejects oversized request bodies', async () => {
   const { server, baseUrl } = await startServer();
 
