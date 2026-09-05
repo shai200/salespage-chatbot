@@ -36,7 +36,7 @@ paths:
                   reply:
                     type: string
         '400':
-          description: Invalid request payload
+          description: Invalid request payload or missing required message
           content:
             application/json:
               schema:
@@ -46,3 +46,12 @@ paths:
                 properties:
                   error:
                     type: string
+              examples:
+                invalidJson:
+                  summary: Malformed JSON
+                  value:
+                    error: Invalid JSON payload
+                missingMessage:
+                  summary: Missing message field
+                  value:
+                    error: The "message" field is required.

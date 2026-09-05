@@ -4,6 +4,7 @@ const path = require('node:path');
 const { generateReply } = require('./chatbot');
 
 const publicDir = path.join(__dirname, '..', 'public');
+const maxRequestBodySize = 1024 * 16;
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -41,10 +42,24 @@ function createServer() {
 
     if (request.method === 'POST' && request.url === '/api/chat') {
       let body = '';
+      let requestTooLarge = false;
       request.on('data', (chunk) => {
+        if (requestTooLarge) {
+          return;
+        }
+
         body += chunk;
+        if (Buffer.byteLength(body) > maxRequestBodySize) {
+          requestTooLarge = true;
+          sendJson(response, 413, { error: 'Request body too large' });
+          request.destroy();
+        }
       });
       request.on('end', () => {
+        if (requestTooLarge) {
+          return;
+        }
+
         try {
           const parsed = JSON.parse(body || '{}');
           if (typeof parsed.message !== 'string') {

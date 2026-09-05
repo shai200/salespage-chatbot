@@ -45,6 +45,20 @@ test('POST /api/chat returns a chatbot reply', async () => {
   }
 });
 
+test('GET /health returns the expected status payload', async () => {
+  const { server, baseUrl } = await startServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/health`);
+    const data = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(data, { status: 'ok' });
+  } finally {
+    await stopServer(server);
+  }
+});
+
 test('POST /api/chat rejects malformed JSON', async () => {
   const { server, baseUrl } = await startServer();
 
@@ -76,6 +90,24 @@ test('POST /api/chat requires a message field', async () => {
 
     assert.equal(response.status, 400);
     assert.equal(data.error, 'The "message" field is required.');
+  } finally {
+    await stopServer(server);
+  }
+});
+
+test('POST /api/chat rejects oversized request bodies', async () => {
+  const { server, baseUrl } = await startServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'x'.repeat(20000) }),
+    });
+    const data = await response.json();
+
+    assert.equal(response.status, 413);
+    assert.equal(data.error, 'Request body too large');
   } finally {
     await stopServer(server);
   }
