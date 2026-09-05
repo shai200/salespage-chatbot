@@ -215,12 +215,62 @@ export function FinalCTA({ text, label }) {
       <h2 className="display lg">{text}</h2>
       {label ? (
         <p>
-          <a className="button" href="#offer">
+          <a className="button" href="#lead" data-open-lead>
             {label}
           </a>
         </p>
       ) : null}
     </section>
+  );
+}
+
+export function LeadModal({
+  heading,
+  nameLabel,
+  emailLabel,
+  phoneLabel,
+  buttonLabel,
+  thanks,
+  errorLabel,
+  slug,
+}) {
+  return (
+    <div id="lead" className="lead-modal" hidden>
+      <div className="lead-modal-backdrop" data-lead-close />
+      <div className="lead-modal-card" role="dialog" aria-modal="true" aria-labelledby="lead-heading">
+        <button type="button" className="lead-modal-close" data-lead-close aria-label="Close">
+          ×
+        </button>
+        <div data-lead-form-wrap>
+          <h2 className="display lg" id="lead-heading">
+            {heading}
+          </h2>
+          <form className="lead-form" data-lead-form data-lead-slug={slug || ""}>
+            <label>
+              {nameLabel || "Name"}
+              <input name="name" type="text" autoComplete="name" required />
+            </label>
+            <label>
+              {emailLabel || "Email"}
+              <input name="email" type="email" autoComplete="email" required />
+            </label>
+            <label>
+              {phoneLabel || "Phone"}
+              <input name="phone" type="tel" autoComplete="tel" required />
+            </label>
+            <p className="lead-error" data-lead-error hidden>
+              {errorLabel || ""}
+            </p>
+            <button className="button" type="submit">
+              {buttonLabel || "Send"}
+            </button>
+          </form>
+        </div>
+        <p className="lead-thanks" data-lead-thanks hidden>
+          {thanks}
+        </p>
+      </div>
+    </div>
   );
 }
 

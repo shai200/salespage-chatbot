@@ -96,6 +96,64 @@ ${body}
   }
   tick();
 })();
+(function () {
+  var modal = document.getElementById("lead");
+  if (!modal) return;
+  var form = modal.querySelector("[data-lead-form]");
+  var formWrap = modal.querySelector("[data-lead-form-wrap]");
+  var thanks = modal.querySelector("[data-lead-thanks]");
+  var errorEl = modal.querySelector("[data-lead-error]");
+  function openModal(event) {
+    if (event) event.preventDefault();
+    modal.removeAttribute("hidden");
+  }
+  function closeModal() {
+    modal.setAttribute("hidden", "");
+  }
+  document.querySelectorAll("[data-open-lead]").forEach(function (el) {
+    el.addEventListener("click", openModal);
+  });
+  modal.querySelectorAll("[data-lead-close]").forEach(function (el) {
+    el.addEventListener("click", closeModal);
+  });
+  if (!form) return;
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    var slug = form.getAttribute("data-lead-slug") || "";
+    var payload = {
+      name: (form.elements.name && form.elements.name.value) || "",
+      email: (form.elements.email && form.elements.email.value) || "",
+      phone: (form.elements.phone && form.elements.phone.value) || ""
+    };
+    if (errorEl) errorEl.setAttribute("hidden", "");
+    fetch("/api/pages/" + encodeURIComponent(slug) + "/leads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          return { ok: res.ok, data: data };
+        });
+      })
+      .then(function (result) {
+        if (!result.ok) {
+          if (errorEl) errorEl.removeAttribute("hidden");
+          return;
+        }
+        var next = result.data && result.data.next_url;
+        if (next && /^https?:\\/\\//i.test(next)) {
+          window.location.assign(next);
+          return;
+        }
+        if (formWrap) formWrap.setAttribute("hidden", "");
+        if (thanks) thanks.removeAttribute("hidden");
+      })
+      .catch(function () {
+        if (errorEl) errorEl.removeAttribute("hidden");
+      });
+  });
+})();
 </script>
 </body>
 </html>

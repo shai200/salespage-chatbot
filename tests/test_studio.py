@@ -20,6 +20,23 @@ def test_conversation_roundtrip(studio_env):
     assert loaded["id"] == created["id"]
     assert loaded["title"] == "Pilot offer"
     assert loaded["images_pending"] == 0
+    assert loaded.get("next_url") in (None, "")
+
+
+def test_lead_roundtrip_under_conversation(studio_env):
+    conversation = db.create_conversation()
+    stored = db.add_lead(
+        conversation["id"],
+        "demo-slug",
+        "Ada Lovelace",
+        "ada@example.com",
+        "+1 202 555 0147",
+    )
+    listed = db.list_leads(conversation["id"])
+    assert listed[0]["id"] == stored["id"]
+    assert listed[0]["conversation_id"] == conversation["id"]
+    assert listed[0]["email"] == "ada@example.com"
+    assert db.list_leads("missing") == []
 
 
 def test_public_conversation_includes_images_pending(client):
@@ -121,6 +138,9 @@ def test_sample_page_has_sales_sections(studio_env):
         "Call to action",
     ):
         assert label in html
+    assert 'id="lead"' in html
+    assert "hidden" in html
+    assert 'data-open-lead' in html
     assert 'class="compare-at"' in html
     assert "$2,400" in html
     assert "$970" in html
@@ -217,17 +237,24 @@ def test_follow_up_resumes_same_thread(studio_env):
     conversation = db.create_conversation()
     first = graph.run_turn(
         conversation["id"],
-        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call\nNext URL: https://cal.example/book",
     )
     site = Path(db.get_conversation(conversation["id"])["site_path"])
-    first_ends = json.loads((site / "page.json").read_text(encoding="utf-8"))["offerEndsAt"]
+    first_page = json.loads((site / "page.json").read_text(encoding="utf-8"))
+    first_ends = first_page["offerEndsAt"]
+    assert db.get_conversation(conversation["id"])["next_url"] == "https://cal.example/book"
+    assert first_page["nextUrl"] == "https://cal.example/book"
+    assert first_page["leadModal"]["nextUrl"] == "https://cal.example/book"
     second = graph.run_turn(conversation["id"], "Make the headline punchier")
     assert first["slug"] == second["slug"]
     assert first["port"] == second["port"]
     assert "copywriter" in second["stages_run"]
     assert second.get("copy")
-    second_ends = json.loads((site / "page.json").read_text(encoding="utf-8"))["offerEndsAt"]
+    second_page = json.loads((site / "page.json").read_text(encoding="utf-8"))
+    second_ends = second_page["offerEndsAt"]
     assert first_ends == second_ends
+    assert second_page["nextUrl"] == "https://cal.example/book"
+    assert db.get_conversation(conversation["id"])["next_url"] == "https://cal.example/book"
 
 
 def test_incomplete_first_message_does_not_publish(studio_env):
@@ -455,6 +482,11 @@ def test_copywriter_system_prompt_requires_length_and_examples():
     assert "end-dream" in prompt
     assert "valueStack" in prompt
     assert "compareAtPrice" in prompt
+    assert "leadModal" in prompt
+    assert "Do NOT invent a next URL" in prompt
+    assert "4Us" in prompt
+    assert "Big Idea" in prompt
+    assert "4th-to-5th-grade" in prompt
     assert "Return ONLY a JSON object" in prompt
 
 
@@ -462,6 +494,27 @@ def test_labeled_intake_parser():
     parsed = intake.parse_labeled_fields("Offer: Tea\nAudience: offices\nCTA: Order")
     assert parsed == {"offer": "Tea", "audience": "offices", "cta": "Order"}
     assert llm.SAMPLE_COPY["headline"]
+
+
+def test_next_url_intake_keeps_brief_complete_and_drops_javascript():
+    labeled = intake.parse_labeled_fields(
+        "Offer: Tea\nAudience: offices\nCTA: Order\nNext URL: https://cal.example/book"
+    )
+    assert labeled["next_url"] == "https://cal.example/book"
+    merged = intake.merge_intake({}, labeled)
+    assert intake.is_complete(merged) is True
+    unsafe = intake.parse_labeled_fields(
+        "Offer: Tea\nAudience: offices\nCTA: Order\nNext URL: javascript:alert(1)"
+    )
+    assert unsafe.get("next_url") == ""
+    kept = intake.merge_intake(
+        {"offer": "Tea", "audience": "offices", "cta": "Order", "next_url": "https://cal.example/book"},
+        {},
+    )
+    assert kept["next_url"] == "https://cal.example/book"
+    rejected = intake.merge_intake(kept, {"next_url": "javascript:alert(1)"})
+    assert rejected["next_url"] == ""
+    assert intake.is_complete(rejected) is True
 
 
 def test_detect_language_hebrew_and_english():
@@ -485,6 +538,9 @@ def test_hebrew_brief_publishes_rtl_page(studio_env):
     assert '<html lang="he" dir="rtl">' in html
     assert "ההנחה נגמרת בעוד" in html
     assert "הערך המלא" in html
+    assert "השאירו פרטים ונמשיך" in html
+    assert "אימייל" in html
+    assert page["leadModal"]["nameLabel"] == "שם"
 
 
 def test_english_page_stays_ltr(studio_env):
@@ -506,3 +562,91 @@ def test_english_page_stays_ltr(studio_env):
     assert "data-offer-ends=" in html
     assert "Discount ends in" in html
     assert "querySelector" in html
+    assert 'id="lead"' in html
+    assert 'data-open-lead' in html
+    assert "/api/pages/" in html
+    assert page["leadModal"]["slug"] == db.get_conversation(conversation["id"])["slug"]
+    assert page.get("nextUrl") == ""
+
+
+def test_copy_cannot_invent_next_url(studio_env):
+    conversation = db.create_conversation()
+    graph.run_turn(
+        conversation["id"],
+        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+    )
+    db.update_conversation(conversation["id"], next_url="")
+    page = pages.page_data_from_copy(
+        {**llm.SAMPLE_COPY, "leadModal": {**llm.SAMPLE_COPY["leadModal"], "nextUrl": "https://evil.example"}},
+        {},
+        {"offer": "Launch kit", "audience": "indie founders", "cta": "Book a call"},
+        slug="demo",
+        conversation_id=conversation["id"],
+        next_url="",
+    )
+    assert page["nextUrl"] == ""
+    assert page["leadModal"]["nextUrl"] == ""
+
+
+def test_capture_lead_and_isolation(client):
+    first = client.post("/api/conversations").json()
+    second = client.post("/api/conversations").json()
+    first_turn = client.post(
+        f"/api/conversations/{first['id']}/messages",
+        json={
+            "content": "Offer: Kit A\nAudience: founders\nCTA: Book\nNext URL: https://cal.example/a"
+        },
+    ).json()
+    second_turn = client.post(
+        f"/api/conversations/{second['id']}/messages",
+        json={"content": "Offer: Kit B\nAudience: founders\nCTA: Book"},
+    ).json()
+    slug_a = first_turn["conversation"]["slug"]
+    slug_b = second_turn["conversation"]["slug"]
+    ok = client.post(
+        f"/api/pages/{slug_a}/leads",
+        json={"name": "Ada", "email": "ada@example.com", "phone": "+1 202 555 0147"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["next_url"] == "https://cal.example/a"
+    assert ok.json()["conversation_id"] == first["id"]
+    missing_phone = client.post(
+        f"/api/pages/{slug_a}/leads",
+        json={"name": "Ada", "email": "ada@example.com", "phone": ""},
+    )
+    assert missing_phone.status_code == 400
+    unknown = client.post(
+        "/api/pages/no-such-page/leads",
+        json={"name": "Ada", "email": "ada@example.com", "phone": "+1 202 555 0147"},
+    )
+    assert unknown.status_code == 404
+    spoof = client.post(
+        f"/api/pages/{slug_b}/leads",
+        json={
+            "name": "Grace",
+            "email": "grace@example.com",
+            "phone": "+1 202 555 0199",
+            "conversation_id": first["id"],
+        },
+    )
+    assert spoof.status_code == 200
+    assert spoof.json()["conversation_id"] == second["id"]
+    assert spoof.json()["next_url"] is None
+    leads_a = client.get(f"/api/conversations/{first['id']}/leads").json()
+    leads_b = client.get(f"/api/conversations/{second['id']}/leads").json()
+    assert [item["email"] for item in leads_a] == ["ada@example.com"]
+    assert [item["email"] for item in leads_b] == ["grace@example.com"]
+    html = client.get(f"/{slug_a}/").text
+    assert f'/api/pages/' in html
+    assert slug_a in html
+
+
+def test_tokens_cover_lead_modal(studio_env):
+    sample = json.loads((config.PAGEKIT_DIR / "sample" / "page.json").read_text(encoding="utf-8"))
+    site_dir = config.SITES_DIR / "sample"
+    pages.write_site(site_dir, sample)
+    css = (site_dir / "tokens.css").read_text(encoding="utf-8")
+    assert ".lead-modal" in css
+    assert "background: var(--bg)" in css
+    assert "color: var(--text)" in css
+    assert "var(--accent)" in css

@@ -50,6 +50,11 @@ SAMPLE_COPY = {
         {"q": "Can I change the headline?", "a": "Yes. Follow up in the same conversation."},
     ],
     "cta": {"label": "Book a walkthrough", "text": "Ready to put this offer in front of buyers?"},
+    "leadModal": {
+        "heading": "Leave your details and we will take it from here",
+        "buttonLabel": "Book a walkthrough",
+        "thanks": "Got it. Thank you.",
+    },
     "footer": "Generated with Homerun Sales Page Builder.",
 }
 
@@ -114,6 +119,23 @@ Persuasion (non-negotiable):
 - Pair two mental movies: (1) victory if they buy — they are inside the room, the deal, the launch; (2) the scary scene if they do not — same room gone cold. The page will show those pictures (end-dream on benefits, the miss on the problem, easy start + small price vs the win on the offer). Write the scenes the images will match. Do not mention the images.
 - Long copy. Tell relevant stories so the prospect loses track of time (a specific person, a Tuesday, a near-miss, a turn). Stories belong in problem, benefits, and offer — not one-line summaries.
 
+Craft (use these on every draft):
+- Lead with a compelling narrative hook. Open on an emotional roller-coaster, then keep story running through problem, benefits, offer, and even FAQ — including “educational” passages. Contrast two paths or characters so the core difference is a movie, not a feature list.
+- Headlines are benefit-driven and pass the 4Us: unique, useful, ultra-specific, urgent. One central Big Idea owns the page. Curiosity teasers on section titles are welcome.
+- Write at a 4th-to-5th-grade reading level. Conversational. “You” and “your” liberally. No tired clichés. A light self-deprecating touch is fine if it never mocks the buyer.
+- Prioritize reader self-interest over product features. Translate every feature into a direct reader benefit. Look through the customer’s eyes, not your taste. Frame the customer as the hero; the company is the guide. Present sustainable empowerment, not patronizing charity.
+- Adapt tone to the customer avatar’s psychographics (status, fear, vanity, lifestyle, being early). Tap physical vanity and lifestyle aspirations where they fit. Tie the promo to a topical macro event or cultural shift. Enter the conversation already in their head (search intent, the thing they muttered last Tuesday).
+- Interview the brief like a client: find the hidden origin story in what they gave you. Do not invent a company history they did not imply.
+- Proof is authentic customer-sounding quotes (role + context), not generic praise. Prefer third-party endorsements, institutional proof, peer-reviewed or audited numbers — only when the brief supplies them. Never invent a journal, audit, or metric. Skin in the game: real-money stakes when the brief has them.
+- Highlight measurable metrics and concrete numbers from the brief. Use contrast and comparison to raise perceived value. Break price into a bite-sized daily cost. Price must feel like value, not a clearance sticker. “Free” is not an automatic conversion driver.
+- Sensory language: at least two senses in the big scenes. Ground prevention offers in vivid present-day emotional consequences. Remind them inaction costs more than the price.
+- Genuine scarcity only, with a verifiable reason-why (the page already has a 24-hour discount clock — do not invent a second deadline). Cohort limits or real upcoming dates only if the brief has them.
+- Underdog story arc to build empathy. Establish authority and insider status up front. Provide an immediate tangible takeaway before the final ask.
+- Neutralize common objections early (FAQ plus the problem/offer). Bullet lines start with varied action verbs. Scannable: short chunks, white space, at-a-glance formatting.
+- Sweeten with high-perceived-value bonuses on the value stack. Position the offer as high-status — an heirloom or conversation starter, not a commodity. Better-than-risk-free guarantee language when the brief allows it.
+- Assume the sale in the body (they already belong here) without asking. The only ask is the Final CTA / lead modal — keep that first step frictionless. Footer is the P.S.: one last punchy benefit or false close.
+- Visuals on the page are generated snapshots of their world, not generic stock. Write scenes those images can match. Do not mention the images.
+
 How to write by section:
 - Hero (Attention): one concrete outcome, one specific buyer. No ask. Subhead opens the story.
 - Problem (Interest): costly status quo plus a story. Then the scary movie of staying put.
@@ -122,7 +144,7 @@ How to write by section:
 - Offer: what they get, who it is for, the after-picture. Still no "buy now". offer.price is today's discounted price, same string as valueStack.price.
 - FAQ: two real objections (time, fit, risk) answered in story, not slogans.
 - Value stack (just before the ask): 4–6 line items (core deliverables plus at least two bonuses). Each has a name and a worth. totalWorth is the sum. compareAtPrice is the crossed-out usual price (higher than today's price, lower than totalWorth). price is today's number. No "buy" language — the stack is the visual, not the ask.
-- CTA (Action): THIS is the only ask. Short button label (2–5 words) plus a closing line that restates the outcome and the cost of waiting. The page already shows a 24-hour discount countdown above this — do not invent a different deadline in the CTA text.
+- CTA (Action): THIS is the only ask. Short button label (2–5 words) plus a closing line that restates the outcome and the cost of waiting. The page already shows a 24-hour discount countdown above this — do not invent a different deadline in the CTA text. The button opens a lead modal (name, email, phone). Write leadModal.heading, buttonLabel, and thanks in the page language. Do NOT invent a next URL or checkout link.
 
 Example — too thin (do not ship this density):
   headline: "Better meetings"
@@ -156,6 +178,7 @@ Return ONLY a JSON object with this shape (no markdown fence):
     "price": string
   }},
   "cta": {{"label": string, "text": string}},
+  "leadModal": {{"heading": string, "buttonLabel": string, "thanks": string}},
   "footer": string,
   "language": "he" or "en"
 }}
@@ -168,7 +191,8 @@ def extract_intake_fields(user_message: str) -> dict[str, str]:
     require_api_key()
     prompt = (
         "Extract sales-page intake fields from the operator message. "
-        "Return JSON with keys offer, audience, cta. Use empty strings if unknown.\n\n"
+        "Return JSON with keys offer, audience, cta, next_url. "
+        "Use empty strings if unknown. next_url must be http(s) or empty.\n\n"
         f"Message:\n{user_message}"
     )
     response = _chat_model().invoke(prompt)
@@ -177,6 +201,7 @@ def extract_intake_fields(user_message: str) -> dict[str, str]:
         "offer": str(parsed.get("offer") or "").strip(),
         "audience": str(parsed.get("audience") or "").strip(),
         "cta": str(parsed.get("cta") or "").strip(),
+        "next_url": str(parsed.get("next_url") or "").strip(),
     }
 
 

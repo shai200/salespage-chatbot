@@ -278,6 +278,86 @@ blockquote footer {
   padding-bottom: 96px;
 }
 
+.lead-modal[hidden] {
+  display: none;
+}
+
+.lead-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.lead-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 10, 0.45);
+}
+
+.lead-modal-card {
+  position: relative;
+  z-index: 1;
+  width: min(440px, 100%);
+  background: var(--bg);
+  color: var(--text);
+  padding: 36px 28px 32px;
+  border: 1px solid var(--rule);
+}
+
+.lead-modal-close {
+  position: absolute;
+  top: 12px;
+  inset-inline-end: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lead-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.lead-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.lead-form input {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  padding: 10px 12px;
+}
+
+.lead-form .button {
+  justify-self: start;
+  border: 0;
+  cursor: pointer;
+}
+
+.lead-error {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.95rem;
+}
+
+.lead-thanks {
+  margin: 12px 0 0;
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+}
+
 .final-cta .lede {
   margin: 0 auto 24px;
 }

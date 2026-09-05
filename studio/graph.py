@@ -22,6 +22,7 @@ class StudioState(TypedDict, total=False):
     offer: str
     audience: str
     cta: str
+    next_url: str
     intake_complete: bool
     copy: dict
     visuals: dict
@@ -126,6 +127,7 @@ def intake_node(state: StudioState) -> dict[str, Any]:
         "offer": conversation.get("offer") or state.get("offer") or "",
         "audience": conversation.get("audience") or state.get("audience") or "",
         "cta": conversation.get("cta") or state.get("cta") or "",
+        "next_url": conversation.get("next_url") or state.get("next_url") or "",
     }
     llm_extract = None
     if config.OPENROUTER_API_KEY and not config.STUDIO_FAKE_LLM:
@@ -346,6 +348,8 @@ def page_engineer_node(state: StudioState) -> dict[str, Any]:
         },
         user_message=state.get("user_message") or "",
         slug=slug,
+        conversation_id=state["conversation_id"],
+        next_url=conversation.get("next_url") or state.get("next_url") or "",
     )
     pages.write_site(site_dir, page_data)
     db.update_conversation(
@@ -462,6 +466,7 @@ def _turn_payload(conversation_id: str, user_message: str) -> tuple[StudioState,
         "offer": conversation.get("offer") or previous.get("offer") or "",
         "audience": conversation.get("audience") or previous.get("audience") or "",
         "cta": conversation.get("cta") or previous.get("cta") or "",
+        "next_url": conversation.get("next_url") or previous.get("next_url") or "",
         "copy": previous.get("copy"),
         "visuals": previous.get("visuals"),
         "slug": conversation.get("slug") or previous.get("slug") or "",

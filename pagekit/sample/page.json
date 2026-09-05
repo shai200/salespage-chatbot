@@ -63,5 +63,15 @@
     "text": "Ready to put this offer in front of buyers?",
     "label": "Book a walkthrough"
   },
+  "leadModal": {
+    "heading": "Leave your details and we will take it from here",
+    "nameLabel": "Name",
+    "emailLabel": "Email",
+    "phoneLabel": "Phone",
+    "buttonLabel": "Book a walkthrough",
+    "thanks": "Got it. Thank you.",
+    "errorLabel": "Check the fields and try again.",
+    "slug": "sample"
+  },
   "footer": "Northline Briefings · Local sample page"
 }

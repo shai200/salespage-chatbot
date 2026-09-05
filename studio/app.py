@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from studio import config, db, graph, publisher
+from studio import config, db, graph, intake, leads, publisher
 
 
 class CreateConversationBody(BaseModel):
@@ -18,6 +18,13 @@ class CreateConversationBody(BaseModel):
 
 class PostMessageBody(BaseModel):
     content: str = Field(min_length=1)
+
+
+class LeadBody(BaseModel):
+    name: str = ""
+    email: str = ""
+    phone: str = ""
+    conversation_id: Optional[str] = None
 
 
 def _public_conversation(row: dict) -> dict:
@@ -32,6 +39,7 @@ def _public_conversation(row: dict) -> dict:
         "offer": row.get("offer"),
         "audience": row.get("audience"),
         "cta": row.get("cta"),
+        "next_url": row.get("next_url") or None,
         "images_pending": bool(row.get("images_pending")),
         "preview_url": config.preview_url(port=port, slug=row.get("slug") or ""),
         "created_at": row.get("created_at"),
@@ -85,6 +93,37 @@ def api_list_messages(conversation_id: str) -> list[dict]:
     if not db.get_conversation(conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     return db.list_messages(conversation_id)
+
+
+@app.get("/api/conversations/{conversation_id}/leads")
+def api_list_leads(conversation_id: str) -> list[dict]:
+    if not db.get_conversation(conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return db.list_leads(conversation_id)
+
+
+@app.post("/api/pages/{slug}/leads")
+def api_capture_lead(slug: str, body: LeadBody) -> dict:
+    conversation = leads.published_conversation_for_slug(slug)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Page not found")
+    cleaned, error = leads.validate_lead(body.name, body.email, body.phone)
+    if error or not cleaned:
+        raise HTTPException(status_code=400, detail=error or "Invalid lead")
+    row = db.add_lead(
+        conversation["id"],
+        slug,
+        cleaned["name"],
+        cleaned["email"],
+        cleaned["phone"],
+    )
+    next_url = intake.sanitize_next_url(str(conversation.get("next_url") or "")) or None
+    return {
+        "ok": True,
+        "id": row["id"],
+        "conversation_id": conversation["id"],
+        "next_url": next_url,
+    }
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:

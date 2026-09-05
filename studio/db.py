@@ -37,6 +37,7 @@ def init() -> None:
                 audience TEXT,
                 cta TEXT,
                 images_pending INTEGER NOT NULL DEFAULT 0,
+                next_url TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -49,6 +50,17 @@ def init() -> None:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (conversation_id) REFERENCES conversations(id)
             );
+
+            CREATE TABLE IF NOT EXISTS leads (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                slug TEXT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                phone TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+            );
             """
         )
         columns = {
@@ -58,6 +70,8 @@ def init() -> None:
             conn.execute(
                 "ALTER TABLE conversations ADD COLUMN images_pending INTEGER NOT NULL DEFAULT 0"
             )
+        if "next_url" not in columns:
+            conn.execute("ALTER TABLE conversations ADD COLUMN next_url TEXT")
         conn.commit()
     finally:
         conn.close()
@@ -77,6 +91,7 @@ def create_conversation(title: str = "Untitled page") -> dict[str, Any]:
         "audience": None,
         "cta": None,
         "images_pending": 0,
+        "next_url": None,
         "created_at": now,
         "updated_at": now,
     }
@@ -86,10 +101,10 @@ def create_conversation(title: str = "Untitled page") -> dict[str, Any]:
             """
             INSERT INTO conversations (
                 id, title, slug, port, site_path, pid, status,
-                offer, audience, cta, images_pending, created_at, updated_at
+                offer, audience, cta, images_pending, next_url, created_at, updated_at
             ) VALUES (
                 :id, :title, :slug, :port, :site_path, :pid, :status,
-                :offer, :audience, :cta, :images_pending, :created_at, :updated_at
+                :offer, :audience, :cta, :images_pending, :next_url, :created_at, :updated_at
             )
             """,
             row,
@@ -149,6 +164,7 @@ def update_conversation(conversation_id: str, **fields: Any) -> dict[str, Any] |
         "audience",
         "cta",
         "images_pending",
+        "next_url",
     }
     updates = {key: value for key, value in fields.items() if key in allowed}
     if "images_pending" in updates:
@@ -215,3 +231,69 @@ def list_messages(conversation_id: str) -> list[dict[str, Any]]:
 
 def conversation_site_dir(slug: str) -> Path:
     return config.SITES_DIR / slug
+
+
+def get_conversation_by_slug(slug: str) -> dict[str, Any] | None:
+    conn = connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT * FROM conversations
+            WHERE slug = ?
+            ORDER BY updated_at DESC
+            """,
+            (slug,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def add_lead(
+    conversation_id: str,
+    slug: str,
+    name: str,
+    email: str,
+    phone: str,
+) -> dict[str, Any]:
+    row = {
+        "id": str(uuid4()),
+        "conversation_id": conversation_id,
+        "slug": slug,
+        "name": name,
+        "email": email,
+        "phone": phone,
+        "created_at": utcnow(),
+    }
+    conn = connect()
+    try:
+        conn.execute(
+            """
+            INSERT INTO leads (
+                id, conversation_id, slug, name, email, phone, created_at
+            ) VALUES (
+                :id, :conversation_id, :slug, :name, :email, :phone, :created_at
+            )
+            """,
+            row,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return row
+
+
+def list_leads(conversation_id: str) -> list[dict[str, Any]]:
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM leads
+            WHERE conversation_id = ?
+            ORDER BY created_at ASC
+            """,
+            (conversation_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()

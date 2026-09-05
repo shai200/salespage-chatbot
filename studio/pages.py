@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from studio import config
+from studio.intake import sanitize_next_url
 
 SECTION_IMPORTS = (
     "Hero",
@@ -20,6 +21,7 @@ SECTION_IMPORTS = (
     "ValueStack",
     "OfferCountdown",
     "FinalCTA",
+    "LeadModal",
     "Footer",
 )
 
@@ -127,6 +129,62 @@ def countdown_parts(ends_at: str) -> tuple[int, int, int]:
     return hours, minutes, seconds
 
 
+def lead_modal_labels(language: str) -> dict[str, str]:
+    if language == "he":
+        return {
+            "heading": "השאירו פרטים ונמשיך",
+            "nameLabel": "שם",
+            "emailLabel": "אימייל",
+            "phoneLabel": "טלפון",
+            "buttonLabel": "שלחו",
+            "thanks": "קיבלנו. תודה.",
+            "errorLabel": "בדקו את השדות ונסו שוב.",
+        }
+    return {
+        "heading": "Leave your details and we will take it from here",
+        "nameLabel": "Name",
+        "emailLabel": "Email",
+        "phoneLabel": "Phone",
+        "buttonLabel": "Send",
+        "thanks": "Got it. Thank you.",
+        "errorLabel": "Check the fields and try again.",
+    }
+
+
+def lead_modal_from_copy(
+    copy: dict[str, Any],
+    language: str,
+    slug: str,
+    conversation_id: str,
+    next_url: str,
+) -> dict[str, Any]:
+    labels = lead_modal_labels(language)
+    raw = copy.get("leadModal") or {}
+    cta_label = (copy.get("cta") or {}).get("label") or labels["buttonLabel"]
+    heading = str(raw.get("heading") or labels["heading"]).strip()
+    button = str(raw.get("buttonLabel") or cta_label or labels["buttonLabel"]).strip()
+    thanks = str(raw.get("thanks") or labels["thanks"]).strip()
+    if language == "he":
+        if not HEBREW_RE.search(heading):
+            heading = labels["heading"]
+        if not HEBREW_RE.search(button):
+            button = labels["buttonLabel"]
+        if not HEBREW_RE.search(thanks):
+            thanks = labels["thanks"]
+    return {
+        "heading": heading,
+        "nameLabel": labels["nameLabel"],
+        "emailLabel": labels["emailLabel"],
+        "phoneLabel": labels["phoneLabel"],
+        "buttonLabel": button,
+        "thanks": thanks,
+        "errorLabel": labels["errorLabel"],
+        "slug": slug,
+        "conversationId": conversation_id,
+        "nextUrl": sanitize_next_url(next_url),
+    }
+
+
 def close_labels(language: str) -> dict[str, str]:
     if language == "he":
         return {
@@ -196,6 +254,7 @@ def _write_app_jsx(site_dir: Path, data: dict[str, Any]) -> None:
     stack = data.get("valueStack", {})
     countdown = data.get("countdown", {})
     cta = data.get("cta", {})
+    lead_modal = data.get("leadModal", {})
     footer = data.get("footer", "")
 
     benefit_items = ",\n    ".join(
@@ -281,6 +340,16 @@ const page = {{
     text: {_jsx_string(cta.get("text"))},
     label: {_jsx_string(cta.get("label"))},
   }},
+  leadModal: {{
+    heading: {_jsx_string(lead_modal.get("heading"))},
+    nameLabel: {_jsx_string(lead_modal.get("nameLabel"))},
+    emailLabel: {_jsx_string(lead_modal.get("emailLabel"))},
+    phoneLabel: {_jsx_string(lead_modal.get("phoneLabel"))},
+    buttonLabel: {_jsx_string(lead_modal.get("buttonLabel"))},
+    thanks: {_jsx_string(lead_modal.get("thanks"))},
+    errorLabel: {_jsx_string(lead_modal.get("errorLabel"))},
+    slug: {_jsx_string(lead_modal.get("slug"))},
+  }},
   footer: {_jsx_string(footer)},
 }};
 
@@ -296,6 +365,7 @@ export default function App() {{
       <ValueStack {{...page.valueStack}} />
       <OfferCountdown {{...page.countdown}} />
       <FinalCTA {{...page.cta}} />
+      <LeadModal {{...page.leadModal}} />
       <Footer text={{page.footer}} />
     </main>
   );
@@ -310,6 +380,8 @@ def page_data_from_copy(
     intake: dict[str, str],
     user_message: str = "",
     slug: str = "",
+    conversation_id: str = "",
+    next_url: str = "",
 ) -> dict[str, Any]:
     cta_label = (copy.get("cta") or {}).get("label") or intake.get("cta") or "Get started"
     extras = " ".join(
@@ -374,6 +446,15 @@ def page_data_from_copy(
         },
         "offerEndsAt": ends_at,
         "cta": copy.get("cta") or {"label": cta_label, "text": ""},
+        "leadModal": lead_modal_from_copy(
+            copy,
+            language,
+            slug,
+            conversation_id,
+            next_url,
+        ),
+        "nextUrl": sanitize_next_url(next_url),
+        "conversationId": conversation_id,
         "footer": copy.get("footer") or "Generated with Homerun Sales Page Builder.",
         "images_pending": bool(visuals.get("images_pending", True)),
     }
@@ -407,6 +488,19 @@ def _with_close(page_data: dict[str, Any], slug: str = "") -> dict[str, Any]:
     countdown.setdefault("minutesLabel", labels["minutesLabel"])
     countdown.setdefault("secondsLabel", labels["secondsLabel"])
     data["countdown"] = countdown
+    modal = dict(data.get("leadModal") or {})
+    labels = lead_modal_labels(language)
+    modal.setdefault("heading", labels["heading"])
+    modal.setdefault("nameLabel", labels["nameLabel"])
+    modal.setdefault("emailLabel", labels["emailLabel"])
+    modal.setdefault("phoneLabel", labels["phoneLabel"])
+    modal.setdefault("buttonLabel", labels["buttonLabel"])
+    modal.setdefault("thanks", labels["thanks"])
+    modal.setdefault("errorLabel", labels["errorLabel"])
+    modal.setdefault("slug", slug)
+    data["leadModal"] = modal
+    if "nextUrl" in data:
+        data["nextUrl"] = sanitize_next_url(str(data.get("nextUrl") or ""))
     return data
 
 

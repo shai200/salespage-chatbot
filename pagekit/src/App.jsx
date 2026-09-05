@@ -5,6 +5,7 @@ import {
   FinalCTA,
   Footer,
   Hero,
+  LeadModal,
   Offer,
   OfferCountdown,
   Problem,
@@ -24,6 +25,7 @@ export function App({ data }) {
       <ValueStack {...data.valueStack} />
       <OfferCountdown {...data.countdown} />
       <FinalCTA {...data.cta} />
+      <LeadModal {...data.leadModal} />
       <Footer text={data.footer} />
     </main>
   );
