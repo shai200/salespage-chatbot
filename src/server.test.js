@@ -135,15 +135,25 @@ test('POST /api/chat rejects oversized request bodies', async () => {
   const { server, baseUrl } = await startServer();
 
   try {
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const oversizedResponse = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: 'x'.repeat(20000) }),
     });
-    const data = await response.json();
+    const oversizedData = await oversizedResponse.json();
 
-    assert.equal(response.status, 413);
-    assert.equal(data.error, 'Request body too large');
+    assert.equal(oversizedResponse.status, 413);
+    assert.equal(oversizedData.error, 'Request body too large');
+
+    const normalResponse = await fetch(`${baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'pricing details' }),
+    });
+    const normalData = await normalResponse.json();
+
+    assert.equal(normalResponse.status, 200);
+    assert.match(normalData.reply, /\$49\/month/);
   } finally {
     await stopServer(server);
   }
