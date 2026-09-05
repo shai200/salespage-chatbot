@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,9 +17,13 @@ SECTION_IMPORTS = (
     "Proof",
     "Offer",
     "FAQ",
+    "ValueStack",
+    "OfferCountdown",
     "FinalCTA",
     "Footer",
 )
+
+OFFER_WINDOW = timedelta(hours=24)
 
 HEBREW_RE = re.compile(r"[\u0590-\u05FF]")
 
@@ -87,13 +92,109 @@ def _jsx_string(value: Any) -> str:
     return json.dumps("" if value is None else str(value), ensure_ascii=False)
 
 
+def _jsx_bool(value: Any) -> str:
+    return "true" if value else "false"
+
+
+def fresh_offer_ends_at() -> str:
+    return (datetime.now(timezone.utc) + OFFER_WINDOW).isoformat()
+
+
+def resolve_offer_ends_at(slug: str = "") -> str:
+    if slug:
+        for path in (live_site_dir(slug) / "page.json", staging_site_dir(slug) / "page.json"):
+            if not path.exists():
+                continue
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8")).get("offerEndsAt")
+            except (OSError, json.JSONDecodeError):
+                continue
+            if existing:
+                return str(existing)
+    return fresh_offer_ends_at()
+
+
+def countdown_parts(ends_at: str) -> tuple[int, int, int]:
+    try:
+        end = datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
+    except ValueError:
+        return 24, 0, 0
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    remaining = max(0, int((end - datetime.now(timezone.utc)).total_seconds()))
+    hours, rem = divmod(remaining, 3600)
+    minutes, seconds = divmod(rem, 60)
+    return hours, minutes, seconds
+
+
+def close_labels(language: str) -> dict[str, str]:
+    if language == "he":
+        return {
+            "stackLabel": "הערך המלא",
+            "totalLabel": "שווי כולל",
+            "bonusLabel": "בונוס",
+            "countdownLabel": "ההנחה נגמרת בעוד",
+            "expiredLabel": "ההנחה נגמרה",
+            "hoursLabel": "שעות",
+            "minutesLabel": "דקות",
+            "secondsLabel": "שניות",
+        }
+    return {
+        "stackLabel": "What you get",
+        "totalLabel": "Total value",
+        "bonusLabel": "Bonus",
+        "countdownLabel": "Discount ends in",
+        "expiredLabel": "This discount has ended",
+        "hoursLabel": "Hours",
+        "minutesLabel": "Minutes",
+        "secondsLabel": "Seconds",
+    }
+
+
+def value_stack_from_copy(copy: dict[str, Any], intake: dict[str, str]) -> dict[str, Any]:
+    raw = copy.get("valueStack") or {}
+    items = []
+    for item in raw.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("title") or "").strip()
+        if not name:
+            continue
+        items.append(
+            {
+                "name": name,
+                "worth": str(item.get("worth") or item.get("value") or "").strip(),
+                "bonus": bool(item.get("bonus")),
+            }
+        )
+    price = str(raw.get("price") or (copy.get("offer") or {}).get("price") or "").strip()
+    if not items and (intake.get("offer") or price):
+        items = [
+            {
+                "name": intake.get("offer") or "Core offer",
+                "worth": price or "Included",
+                "bonus": False,
+            }
+        ]
+    return {
+        "title": str(raw.get("title") or "").strip(),
+        "items": items,
+        "totalWorth": str(raw.get("totalWorth") or "").strip(),
+        "compareAtPrice": str(raw.get("compareAtPrice") or "").strip(),
+        "price": price,
+    }
+
+
 def _write_app_jsx(site_dir: Path, data: dict[str, Any]) -> None:
     hero = data.get("hero", {})
     problem = data.get("problem", {})
     benefits = data.get("benefits", [])
+    benefit_visual = data.get("benefitVisual", {})
     proof = data.get("proof", [])
     offer = data.get("offer", {})
     faq = data.get("faq", [])
+    stack = data.get("valueStack", {})
+    countdown = data.get("countdown", {})
     cta = data.get("cta", {})
     footer = data.get("footer", "")
 
@@ -108,6 +209,10 @@ def _write_app_jsx(site_dir: Path, data: dict[str, Any]) -> None:
     faq_items = ",\n    ".join(
         f"{{ q: {_jsx_string(item.get('q'))}, a: {_jsx_string(item.get('a'))} }}"
         for item in faq
+    )
+    stack_items = ",\n    ".join(
+        f"{{ name: {_jsx_string(item.get('name'))}, worth: {_jsx_string(item.get('worth'))}, bonus: {_jsx_bool(item.get('bonus'))} }}"
+        for item in stack.get("items") or []
     )
 
     source = f"""import React from "react";
@@ -125,10 +230,16 @@ const page = {{
   problem: {{
     title: {_jsx_string(problem.get("title"))},
     body: {_jsx_string(problem.get("body"))},
+    visualLabel: {_jsx_string(problem.get("visualLabel"))},
+    src: {_jsx_string(problem.get("src"))},
   }},
   benefits: [
     {benefit_items}
   ],
+  benefitVisual: {{
+    visualLabel: {_jsx_string(benefit_visual.get("visualLabel"))},
+    src: {_jsx_string(benefit_visual.get("src"))},
+  }},
   proof: [
     {proof_items}
   ],
@@ -137,10 +248,35 @@ const page = {{
     body: {_jsx_string(offer.get("body"))},
     price: {_jsx_string(offer.get("price"))},
     ctaLabel: {_jsx_string(offer.get("ctaLabel"))},
+    visualLabel: {_jsx_string(offer.get("visualLabel"))},
+    src: {_jsx_string(offer.get("src"))},
   }},
   faq: [
     {faq_items}
   ],
+  valueStack: {{
+    title: {_jsx_string(stack.get("title"))},
+    items: [
+    {stack_items}
+    ],
+    totalWorth: {_jsx_string(stack.get("totalWorth"))},
+    compareAtPrice: {_jsx_string(stack.get("compareAtPrice"))},
+    price: {_jsx_string(stack.get("price"))},
+    label: {_jsx_string(stack.get("label"))},
+    totalLabel: {_jsx_string(stack.get("totalLabel"))},
+    bonusLabel: {_jsx_string(stack.get("bonusLabel"))},
+  }},
+  countdown: {{
+    endsAt: {_jsx_string(countdown.get("endsAt"))},
+    hours: {_jsx_string(countdown.get("hours"))},
+    minutes: {_jsx_string(countdown.get("minutes"))},
+    seconds: {_jsx_string(countdown.get("seconds"))},
+    label: {_jsx_string(countdown.get("label"))},
+    expiredLabel: {_jsx_string(countdown.get("expiredLabel"))},
+    hoursLabel: {_jsx_string(countdown.get("hoursLabel"))},
+    minutesLabel: {_jsx_string(countdown.get("minutesLabel"))},
+    secondsLabel: {_jsx_string(countdown.get("secondsLabel"))},
+  }},
   cta: {{
     text: {_jsx_string(cta.get("text"))},
     label: {_jsx_string(cta.get("label"))},
@@ -153,10 +289,12 @@ export default function App() {{
     <main className="page">
       <Hero {{...page.hero}} />
       <Problem {{...page.problem}} />
-      <Benefits items={{page.benefits}} />
+      <Benefits items={{page.benefits}} {{...page.benefitVisual}} />
       <Proof items={{page.proof}} />
       <Offer {{...page.offer}} />
       <FAQ items={{page.faq}} />
+      <ValueStack {{...page.valueStack}} />
+      <OfferCountdown {{...page.countdown}} />
       <FinalCTA {{...page.cta}} />
       <Footer text={{page.footer}} />
     </main>
@@ -171,6 +309,7 @@ def page_data_from_copy(
     visuals: dict[str, Any],
     intake: dict[str, str],
     user_message: str = "",
+    slug: str = "",
 ) -> dict[str, Any]:
     cta_label = (copy.get("cta") or {}).get("label") or intake.get("cta") or "Get started"
     extras = " ".join(
@@ -182,6 +321,10 @@ def page_data_from_copy(
         ]
     )
     language, direction = detect_language(copy, extras)
+    labels = close_labels(language)
+    stack = value_stack_from_copy(copy, intake)
+    ends_at = resolve_offer_ends_at(slug)
+    hours, minutes, seconds = countdown_parts(ends_at)
     return {
         "title": copy.get("headline") or intake.get("offer") or "Sales page",
         "language": language,
@@ -194,21 +337,81 @@ def page_data_from_copy(
             "visualLabel": (visuals.get("hero") or {}).get("label") or "Visual pending",
             "src": (visuals.get("hero") or {}).get("src") or "",
         },
-        "problem": copy.get("problem") or {"title": "", "body": ""},
+        "problem": {
+            **(copy.get("problem") or {"title": "", "body": ""}),
+            "visualLabel": (visuals.get("risk") or {}).get("label") or "",
+            "src": (visuals.get("risk") or {}).get("src") or "",
+        },
         "benefits": copy.get("benefits") or [],
+        "benefitVisual": {
+            "visualLabel": (visuals.get("dream") or {}).get("label") or "",
+            "src": (visuals.get("dream") or {}).get("src") or "",
+        },
         "proof": copy.get("proof") or [],
         "offer": {
             **(copy.get("offer") or {}),
             "ctaLabel": cta_label,
+            "visualLabel": (visuals.get("value") or {}).get("label") or "",
+            "src": (visuals.get("value") or {}).get("src") or "",
         },
         "faq": copy.get("faq") or [],
+        "valueStack": {
+            **stack,
+            "label": labels["stackLabel"],
+            "totalLabel": labels["totalLabel"],
+            "bonusLabel": labels["bonusLabel"],
+        },
+        "countdown": {
+            "endsAt": ends_at,
+            "hours": f"{hours:02d}",
+            "minutes": f"{minutes:02d}",
+            "seconds": f"{seconds:02d}",
+            "label": labels["countdownLabel"],
+            "expiredLabel": labels["expiredLabel"],
+            "hoursLabel": labels["hoursLabel"],
+            "minutesLabel": labels["minutesLabel"],
+            "secondsLabel": labels["secondsLabel"],
+        },
+        "offerEndsAt": ends_at,
         "cta": copy.get("cta") or {"label": cta_label, "text": ""},
         "footer": copy.get("footer") or "Generated with Homerun Sales Page Builder.",
         "images_pending": bool(visuals.get("images_pending", True)),
     }
 
 
+def _with_close(page_data: dict[str, Any], slug: str = "") -> dict[str, Any]:
+    data = dict(page_data)
+    language = str(data.get("language") or "en")
+    labels = close_labels(language)
+    ends_at = (
+        data.get("offerEndsAt")
+        or (data.get("countdown") or {}).get("endsAt")
+        or resolve_offer_ends_at(slug)
+    )
+    hours, minutes, seconds = countdown_parts(str(ends_at))
+    stack = dict(data.get("valueStack") or {})
+    stack.setdefault("items", [])
+    stack.setdefault("label", labels["stackLabel"])
+    stack.setdefault("totalLabel", labels["totalLabel"])
+    stack.setdefault("bonusLabel", labels["bonusLabel"])
+    data["valueStack"] = stack
+    data["offerEndsAt"] = ends_at
+    countdown = dict(data.get("countdown") or {})
+    countdown["endsAt"] = ends_at
+    countdown.setdefault("hours", f"{hours:02d}")
+    countdown.setdefault("minutes", f"{minutes:02d}")
+    countdown.setdefault("seconds", f"{seconds:02d}")
+    countdown.setdefault("label", labels["countdownLabel"])
+    countdown.setdefault("expiredLabel", labels["expiredLabel"])
+    countdown.setdefault("hoursLabel", labels["hoursLabel"])
+    countdown.setdefault("minutesLabel", labels["minutesLabel"])
+    countdown.setdefault("secondsLabel", labels["secondsLabel"])
+    data["countdown"] = countdown
+    return data
+
+
 def write_site(site_dir: Path, page_data: dict[str, Any]) -> None:
+    page_data = _with_close(page_data, site_dir.name)
     site_dir.mkdir(parents=True, exist_ok=True)
     kit_src = config.PAGEKIT_DIR / "src"
     shutil.copy2(kit_src / "tokens.css", site_dir / "tokens.css")

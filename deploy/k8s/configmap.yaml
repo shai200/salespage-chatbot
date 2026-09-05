@@ -10,3 +10,4 @@ data:
   SERVE_SITES: "1"
   PUBLIC_BASE_URL: "https://homerun.love"
   PAGE_RSYNC_TARGET: ""
+  COPY_MIN_WORDS: "2100"

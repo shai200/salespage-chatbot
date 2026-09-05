@@ -23,6 +23,7 @@ cd pagekit && npm install && cd ..
 # optional: OPENROUTER_MODEL=openai/gpt-4o-mini
 # optional: OPENROUTER_IMAGE_MODEL=meta/muse-image
 # optional: OPENROUTER_EMBED_MODEL=google/gemini-embedding-2
+# optional: COPY_MIN_WORDS=2100
 
 python -m studio
 ```
@@ -120,9 +121,9 @@ START --> intake --> copywriter --> visual --> page_engineer --> publisher --> E
 | Node | Job |
 |---|---|
 | **intake** | Merge offer, audience, CTA. Incomplete brief asks for what’s missing and stops. |
-| **copywriter** | Retrieve a few guide passages (offer + audience + operator message), then OpenRouter chat → JSON sales copy. Notes are craft guidance, not quotes. Empty index → today’s brief-only prompt. |
-| **visual** | OpenRouter `/images` → `hero.png`. Failure keeps placeholders (`images_pending`). Copy-only edits skip this node. |
-| **page_engineer** | Write React + `page.json`, prerender (`pagekit/prerender.mjs`). Hebrew gets `lang="he"` `dir="rtl"`. |
+| **copywriter** | System prompt (craft rules, thin vs dense examples, `{COPY_MIN_WORDS}` minimum — default 2100). OpenRouter chat → JSON sales copy. Guide RAG (specified) injects notes when the index exists. |
+| **visual** | OpenRouter `/images` → `hero.png`, `dream.png` (won outcome), `risk.png` (if they wait), `value.png` (easy start, small price vs the win). Failure keeps placeholders (`images_pending`). Copy-only edits skip this node. |
+| **page_engineer** | Write React + `page.json`, prerender (`pagekit/prerender.mjs`). Hebrew gets `lang="he"` `dir="rtl"`. Close includes a value stack (worth vs crossed-out price vs today’s price) and a 24-hour discount countdown before the final ask. |
 | **publisher** | Promote staging → live `sites/<slug>/`, return `{origin}/{slug}/`. No Node spawn. |
 
 The UI streams stage labels over SSE so the thread shows “Writing the page copy” instead of a blank wait.
@@ -139,7 +140,7 @@ Copy-only follow-ups use word-boundary matching. Image words never skip the visu
 
 **RAG SQLite** (`data/rag.sqlite`, gitignored, specified): file registry, chunk text, sqlite-vec embeddings. Same `studio-data` PVC on Civo. No extra Service. Load sqlite-vec only on this connection.
 
-**Filesystem** (`sites/<slug>/`, gitignored): prerendered `index.html`, `hero.png`, `page.json`, React source. Staging: `sites/.staging/<slug>/` until promote.
+**Filesystem** (`sites/<slug>/`, gitignored): prerendered `index.html`, page PNGs (`hero.png`, `dream.png`, `risk.png`, `value.png`), `page.json`, React source. Staging: `sites/.staging/<slug>/` until promote.
 
 **Guides** (`guides/*.pdf`, gitignored): operator copywriting PDFs. Ingest hashes, chunks (~500–800 tokens), embeds via OpenRouter (`OPENROUTER_EMBED_MODEL`, default `google/gemini-embedding-2`). Unchanged files skip re-embed. Retrieval failure never blocks generate.
 

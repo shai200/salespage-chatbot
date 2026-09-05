@@ -34,8 +34,20 @@
   "offer": {
     "title": "Northline Briefings",
     "body": "A half-day working session that leaves you with a page, not another slide deck.",
-    "price": "From $2,400",
+    "price": "$970",
     "ctaLabel": "Book a walkthrough"
+  },
+  "valueStack": {
+    "title": "Everything stacked for today",
+    "items": [
+      { "name": "Half-day working session", "worth": "$2,400", "bonus": false },
+      { "name": "Offer and proof rewrite", "worth": "$800", "bonus": false },
+      { "name": "Bonus: 48-hour revision pass", "worth": "$400", "bonus": true },
+      { "name": "Bonus: CTA sequence", "worth": "$200", "bonus": true }
+    ],
+    "totalWorth": "$3,800",
+    "compareAtPrice": "$2,400",
+    "price": "$970"
   },
   "faq": [
     {

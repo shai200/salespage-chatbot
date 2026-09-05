@@ -50,8 +50,8 @@ STAGE_INFO = {
         "short": "Writing",
     },
     "visual": {
-        "label": "Generating the hero image",
-        "detail": "This can take a moment",
+        "label": "Generating the page images",
+        "detail": "Hero, dream, risk, and value scenes",
         "short": "Imaging",
     },
     "page_engineer": {
@@ -178,26 +178,68 @@ def copywriter_node(state: StudioState) -> dict[str, Any]:
     return {"copy": copy, "stages_run": _append_stage(state, "copywriter")}
 
 
+PAGE_IMAGE_SLOTS = (
+    ("hero", "hero.png", "Hero"),
+    ("dream", "dream.png", "The life after they buy"),
+    ("risk", "risk.png", "What happens if they wait"),
+    ("value", "value.png", "Easy to start, small price next to the win"),
+)
+
+
 def _placeholder_visuals(note: str | None = None) -> dict[str, Any]:
-    return {
+    visuals: dict[str, Any] = {
         "provider": None,
         "images_pending": True,
-        "hero": {"type": "placeholder", "label": "Hero visual pending"},
         "note": note
         or "Images are pending — the page uses placeholders.",
     }
+    for key, _filename, label in PAGE_IMAGE_SLOTS:
+        visuals[key] = {"type": "placeholder", "label": f"{label} pending"}
+    return visuals
 
 
-def _hero_image_prompt(state: StudioState) -> str:
+def _brief_for_images(state: StudioState) -> tuple[str, str, str]:
     copy = state.get("copy") or {}
     offer = state.get("offer") or "a product"
     audience = state.get("audience") or "buyers"
     headline = copy.get("headline") or offer
+    return offer, audience, headline
+
+
+def _hero_image_prompt(state: StudioState) -> str:
+    offer, audience, headline = _brief_for_images(state)
     return (
         f"Editorial hero photograph for a sales page. Offer: {offer}. "
         f"Audience: {audience}. Headline: {headline}. "
         "Clean, high-end, no text overlay, no logos."
     )
+
+
+def _page_image_prompts(state: StudioState) -> dict[str, str]:
+    offer, audience, headline = _brief_for_images(state)
+    shared = (
+        f"Offer: {offer}. Audience: {audience}. Headline: {headline}. "
+        "Photoreal editorial, no text overlay, no logos, no watermarks."
+    )
+    return {
+        "hero": _hero_image_prompt(state),
+        "dream": (
+            "The end-dream if they buy: the buyer already living the won outcome — "
+            "the room, the deal, the ease. Warm light, triumphant, specific, cinematic. "
+            + shared
+        ),
+        "risk": (
+            "What happens if they do not buy: the stalled life, empty inbox, a competitor "
+            "who shipped, a cold room after they waited. Tense, dark, still no gore. "
+            + shared
+        ),
+        "value": (
+            "How easy it is to start and how small the price feels next to the value: "
+            "a simple yes, one click, a modest cost beside a large win. Clean, light, "
+            "reassuring, high-end. "
+            + shared
+        ),
+    }
 
 
 def fetch_openrouter_images(prompt: str) -> list[bytes]:
@@ -241,21 +283,33 @@ def visual_node(state: StudioState) -> dict[str, Any]:
     db.update_conversation(state["conversation_id"], slug=slug)
 
     visuals = _placeholder_visuals()
-    try:
-        images = fetch_openrouter_images(_hero_image_prompt(state))
-        site_dir.mkdir(parents=True, exist_ok=True)
-        dest = site_dir / "hero.png"
-        dest.write_bytes(images[0])
-        visuals = {
-            "provider": "openrouter",
-            "images_pending": False,
-            "hero": {"type": "image", "src": "hero.png", "label": "Hero"},
-            "note": "",
-        }
-    except Exception as exc:
-        visuals = _placeholder_visuals(
-            f"Images are pending — OpenRouter image request failed ({exc})."
+    prompts = _page_image_prompts(state)
+    failures: list[str] = []
+    wrote = 0
+    site_dir.mkdir(parents=True, exist_ok=True)
+    for key, filename, label in PAGE_IMAGE_SLOTS:
+        try:
+            images = fetch_openrouter_images(prompts[key])
+            (site_dir / filename).write_bytes(images[0])
+            visuals[key] = {"type": "image", "src": filename, "label": label}
+            wrote += 1
+        except Exception as exc:
+            visuals[key] = {"type": "placeholder", "label": f"{label} pending"}
+            failures.append(f"{key}: {exc}")
+    if wrote:
+        visuals["provider"] = "openrouter"
+    visuals["images_pending"] = wrote < len(PAGE_IMAGE_SLOTS)
+    if failures and wrote:
+        visuals["note"] = (
+            "Some images are pending — "
+            + "; ".join(failures[:2])
         )
+    elif failures:
+        visuals["note"] = (
+            f"Images are pending — OpenRouter image request failed ({failures[0]})."
+        )
+    else:
+        visuals["note"] = ""
 
     pending = bool(visuals.get("images_pending"))
     db.update_conversation(state["conversation_id"], slug=slug, images_pending=pending)
@@ -274,10 +328,14 @@ def page_engineer_node(state: StudioState) -> dict[str, Any]:
         slug = pages.unique_slug(state.get("offer") or "sales-page", state["conversation_id"])
     site_dir = pages.staging_site_dir(slug)
     live = pages.live_site_dir(slug)
-    hero = live / "hero.png"
-    if hero.exists():
-        site_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(hero, site_dir / "hero.png")
+    site_dir.mkdir(parents=True, exist_ok=True)
+    for _key, filename, _label in PAGE_IMAGE_SLOTS:
+        dest = site_dir / filename
+        if dest.exists():
+            continue
+        prior = live / filename
+        if prior.exists():
+            shutil.copy2(prior, dest)
     page_data = pages.page_data_from_copy(
         state.get("copy") or {},
         state.get("visuals") or {},
@@ -287,6 +345,7 @@ def page_engineer_node(state: StudioState) -> dict[str, Any]:
             "cta": state.get("cta") or "",
         },
         user_message=state.get("user_message") or "",
+        slug=slug,
     )
     pages.write_site(site_dir, page_data)
     db.update_conversation(

@@ -64,6 +64,39 @@ const html = `<!DOCTYPE html>
 </head>
 <body>
 ${body}
+<script>
+(function () {
+  var root = document.querySelector("[data-offer-ends]");
+  if (!root) return;
+  var end = Date.parse(root.getAttribute("data-offer-ends"));
+  if (!end) return;
+  function pad(n) { return String(n).padStart(2, "0"); }
+  function tick() {
+    var left = end - Date.now();
+    var face = root.querySelector(".countdown-face");
+    var expired = root.querySelector(".countdown-expired");
+    if (left <= 0) {
+      if (face) face.setAttribute("hidden", "");
+      if (expired) expired.removeAttribute("hidden");
+      return;
+    }
+    if (face) face.removeAttribute("hidden");
+    if (expired) expired.setAttribute("hidden", "");
+    var total = Math.floor(left / 1000);
+    var map = {
+      h: Math.floor(total / 3600),
+      m: Math.floor((total % 3600) / 60),
+      s: total % 60
+    };
+    Object.keys(map).forEach(function (unit) {
+      var el = root.querySelector('[data-unit="' + unit + '"]');
+      if (el) el.textContent = pad(map[unit]);
+    });
+    setTimeout(tick, 250);
+  }
+  tick();
+})();
+</script>
 </body>
 </html>
 `;

@@ -87,12 +87,17 @@ body {
   font-size: 0.95rem;
 }
 
-.hero-visual {
+.hero-visual,
+.section-visual {
   margin-top: 40px;
   width: 100%;
   max-height: 420px;
   object-fit: cover;
   display: block;
+}
+
+.section-visual {
+  margin-bottom: 8px;
 }
 
 .hero {
@@ -160,6 +165,114 @@ blockquote footer {
   margin: 0 0 8px;
 }
 
+.stack-list {
+  list-style: none;
+  margin: 32px 0 0;
+  padding: 0;
+  border: 1px solid var(--rule);
+}
+
+.stack-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.stack-list li:last-child {
+  border-bottom: 0;
+}
+
+.stack-list li.stack-bonus {
+  background: #fff7f3;
+}
+
+.bonus-tag {
+  display: inline-block;
+  margin-inline-end: 8px;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.stack-worth,
+.stack-total strong {
+  font-family: var(--font-display);
+  white-space: nowrap;
+}
+
+.stack-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 18px 0 0;
+  font-size: 1.15rem;
+}
+
+.stack-price {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 28px 0 0;
+}
+
+.compare-at {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.final-price {
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 5vw, 3.2rem);
+  color: var(--accent);
+  line-height: 1;
+}
+
+.offer-countdown {
+  text-align: center;
+  padding-bottom: 24px;
+}
+
+.countdown-face {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.countdown-face div {
+  min-width: 88px;
+  padding: 16px 8px;
+  border: 1px solid var(--rule);
+  text-align: center;
+}
+
+.countdown-face span {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+.countdown-face small {
+  display: block;
+  margin-top: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.countdown-expired {
+  margin: 16px 0 0;
+  color: var(--muted);
+}
+
 .final-cta {
   text-align: center;
   padding-bottom: 96px;
@@ -202,4 +315,12 @@ html[dir="rtl"] h2,
 html[dir="rtl"] h3,
 html[dir="rtl"] blockquote {
   text-align: start;
+}
+
+html[dir="rtl"] .offer-countdown,
+html[dir="rtl"] .offer-countdown .section-label,
+html[dir="rtl"] .final-cta,
+html[dir="rtl"] .final-cta .section-label,
+html[dir="rtl"] .final-cta .display {
+  text-align: center;
 }

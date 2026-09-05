@@ -103,7 +103,7 @@ echo "pages:     ${PUBLIC_BASE_URL}/<slug>/"
 echo "serve:     SERVE_SITES=${SERVE_SITES}"
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
-  docker build -t "$IMAGE" -t "${IMAGE_REPO}:latest" "$ROOT"
+  docker build --platform linux/amd64 -t "$IMAGE" -t "${IMAGE_REPO}:latest" "$ROOT"
   if [[ "$SKIP_PUSH" -eq 0 ]]; then
     docker push "$IMAGE"
     docker push "${IMAGE_REPO}:latest"

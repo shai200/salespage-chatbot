@@ -29,6 +29,7 @@ OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/ap
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini").strip()
 OPENROUTER_IMAGE_MODEL = os.getenv("OPENROUTER_IMAGE_MODEL", "meta/muse-image").strip()
 STUDIO_FAKE_LLM = os.getenv("STUDIO_FAKE_LLM", "").strip() in {"1", "true", "yes"}
+COPY_MIN_WORDS = int(os.getenv("COPY_MIN_WORDS", "2100") or "2100")
 
 
 def missing_api_key_message() -> str:

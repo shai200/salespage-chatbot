@@ -109,8 +109,23 @@ def test_sample_page_has_sales_sections(studio_env):
     site_dir = config.SITES_DIR / "sample"
     pages.write_site(site_dir, sample)
     html = (site_dir / "index.html").read_text(encoding="utf-8")
-    for label in ("Sales page", "Problem", "Benefits", "Proof", "Offer", "FAQ", "Call to action"):
+    for label in (
+        "Sales page",
+        "Problem",
+        "Benefits",
+        "Proof",
+        "Offer",
+        "FAQ",
+        "What you get",
+        "Discount ends in",
+        "Call to action",
+    ):
         assert label in html
+    assert 'class="compare-at"' in html
+    assert "$2,400" in html
+    assert "$970" in html
+    assert "data-offer-ends=" in html
+    assert "data-unit=" in html
     assert "dashboard" not in html.lower()
 
 
@@ -204,11 +219,15 @@ def test_follow_up_resumes_same_thread(studio_env):
         conversation["id"],
         "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
     )
+    site = Path(db.get_conversation(conversation["id"])["site_path"])
+    first_ends = json.loads((site / "page.json").read_text(encoding="utf-8"))["offerEndsAt"]
     second = graph.run_turn(conversation["id"], "Make the headline punchier")
     assert first["slug"] == second["slug"]
     assert first["port"] == second["port"]
     assert "copywriter" in second["stages_run"]
     assert second.get("copy")
+    second_ends = json.loads((site / "page.json").read_text(encoding="utf-8"))["offerEndsAt"]
+    assert first_ends == second_ends
 
 
 def test_incomplete_first_message_does_not_publish(studio_env):
@@ -254,9 +273,16 @@ def test_image_success_writes_png(studio_env, monkeypatch):
     assert result["visuals"]["images_pending"] is False
     assert db.get_conversation(conversation["id"])["images_pending"] == 0
     assert result["visuals"]["hero"]["src"] == "hero.png"
-    assert (site / "hero.png").read_bytes() == TINY_PNG
+    assert result["visuals"]["dream"]["src"] == "dream.png"
+    assert result["visuals"]["risk"]["src"] == "risk.png"
+    assert result["visuals"]["value"]["src"] == "value.png"
+    for name in ("hero.png", "dream.png", "risk.png", "value.png"):
+        assert (site / name).read_bytes() == TINY_PNG
     html = (site / "index.html").read_text(encoding="utf-8")
     assert 'src="hero.png"' in html
+    assert 'src="dream.png"' in html
+    assert 'src="risk.png"' in html
+    assert 'src="value.png"' in html
 
 
 def test_image_api_failure_keeps_placeholders(studio_env, monkeypatch):
@@ -271,7 +297,8 @@ def test_image_api_failure_keeps_placeholders(studio_env, monkeypatch):
     )
     site = Path(db.get_conversation(conversation["id"])["site_path"])
     assert result["visuals"]["images_pending"] is True
-    assert not (site / "hero.png").exists()
+    for name in ("hero.png", "dream.png", "risk.png", "value.png"):
+        assert not (site / name).exists()
     assert result.get("preview_url")
 
 
@@ -417,6 +444,20 @@ def test_publish_message_includes_new_tab_url(studio_env, client):
     assert detail["preview_url"] == url
 
 
+def test_copywriter_system_prompt_requires_length_and_examples():
+    prompt = llm.copywriter_system_prompt()
+    assert str(config.COPY_MIN_WORDS) in prompt
+    assert "too thin" in prompt.lower()
+    assert "density we want" in prompt.lower()
+    assert "Ask for the sale ONLY at the very end" in prompt
+    assert "AIDA" in prompt
+    assert "FOMO" in prompt
+    assert "end-dream" in prompt
+    assert "valueStack" in prompt
+    assert "compareAtPrice" in prompt
+    assert "Return ONLY a JSON object" in prompt
+
+
 def test_labeled_intake_parser():
     parsed = intake.parse_labeled_fields("Offer: Tea\nAudience: offices\nCTA: Order")
     assert parsed == {"offer": "Tea", "audience": "offices", "cta": "Order"}
@@ -442,6 +483,8 @@ def test_hebrew_brief_publishes_rtl_page(studio_env):
     assert page["language"] == "he"
     assert page["dir"] == "rtl"
     assert '<html lang="he" dir="rtl">' in html
+    assert "ההנחה נגמרת בעוד" in html
+    assert "הערך המלא" in html
 
 
 def test_english_page_stays_ltr(studio_env):
@@ -450,8 +493,16 @@ def test_english_page_stays_ltr(studio_env):
         conversation["id"],
         "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
     )
-    html = Path(db.get_conversation(conversation["id"])["site_path"], "index.html").read_text(
-        encoding="utf-8"
-    )
+    site = Path(db.get_conversation(conversation["id"])["site_path"])
+    html = (site / "index.html").read_text(encoding="utf-8")
+    page = json.loads((site / "page.json").read_text(encoding="utf-8"))
     assert '<html lang="en">' in html
     assert "<html lang=\"en\" dir=\"rtl\">" not in html
+    assert page["valueStack"]["compareAtPrice"]
+    assert page["valueStack"]["price"]
+    assert page["offerEndsAt"]
+    assert page["countdown"]["endsAt"] == page["offerEndsAt"]
+    assert 'class="compare-at"' in html
+    assert "data-offer-ends=" in html
+    assert "Discount ends in" in html
+    assert "querySelector" in html
