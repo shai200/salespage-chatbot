@@ -86,6 +86,8 @@ def test_sample_page_uses_editorial_tokens(studio_env):
     assert "Fraunces" in html
     assert "Source Sans 3" in html
     assert "Close the room" in html
+    assert '<html lang="en">' in html
+    assert "<html lang=\"en\" dir=\"rtl\">" not in html
 
 
 def test_sample_page_has_sales_sections(studio_env):
@@ -114,6 +116,12 @@ def test_graph_runs_stages_in_order(studio_env):
     assert result.get("copy", {}).get("headline")
 
 
+def test_copy_only_skip_does_not_match_instead():
+    assert graph._copy_only_follow_up("render the images instead of the placeholders", True) is False
+    assert graph._copy_only_follow_up("add the visuals", True) is False
+    assert graph._copy_only_follow_up("make the headline punchier", True) is True
+
+
 def test_follow_up_resumes_same_thread(studio_env):
     conversation = db.create_conversation()
     first = graph.run_turn(
@@ -137,6 +145,13 @@ def test_incomplete_first_message_does_not_publish(studio_env):
     assert refreshed["site_path"] is None
 
 
+TINY_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc``\x00\x00"
+    b"\x00\x04\x00\x01\xf6\x178U\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
 def test_placeholder_visuals_still_publish(studio_env):
     conversation = db.create_conversation()
     result = graph.run_turn(
@@ -148,6 +163,37 @@ def test_placeholder_visuals_still_publish(studio_env):
         encoding="utf-8"
     )
     assert "pending" in html.lower()
+    assert result.get("preview_url")
+
+
+def test_image_success_writes_png(studio_env, monkeypatch):
+    monkeypatch.setattr(graph, "fetch_openrouter_images", lambda prompt: [TINY_PNG])
+    conversation = db.create_conversation()
+    result = graph.run_turn(
+        conversation["id"],
+        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+    )
+    site = Path(db.get_conversation(conversation["id"])["site_path"])
+    assert result["visuals"]["images_pending"] is False
+    assert result["visuals"]["hero"]["src"] == "hero.png"
+    assert (site / "hero.png").read_bytes() == TINY_PNG
+    html = (site / "index.html").read_text(encoding="utf-8")
+    assert 'src="hero.png"' in html
+
+
+def test_image_api_failure_keeps_placeholders(studio_env, monkeypatch):
+    def boom(_prompt):
+        raise RuntimeError("gateway 500")
+
+    monkeypatch.setattr(graph, "fetch_openrouter_images", boom)
+    conversation = db.create_conversation()
+    result = graph.run_turn(
+        conversation["id"],
+        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+    )
+    site = Path(db.get_conversation(conversation["id"])["site_path"])
+    assert result["visuals"]["images_pending"] is True
+    assert not (site / "hero.png").exists()
     assert result.get("preview_url")
 
 
@@ -207,3 +253,37 @@ def test_labeled_intake_parser():
     parsed = intake.parse_labeled_fields("Offer: Tea\nAudience: offices\nCTA: Order")
     assert parsed == {"offer": "Tea", "audience": "offices", "cta": "Order"}
     assert llm.SAMPLE_COPY["headline"]
+
+
+def test_detect_language_hebrew_and_english():
+    assert pages.detect_language({"language": "he"}) == ("he", "rtl")
+    assert pages.detect_language({"headline": "Hello world"}) == ("en", "ltr")
+    hebrew = "הצעה לסדנת מכירות לצוותים"
+    assert pages.detect_language({}, hebrew) == ("he", "rtl")
+
+
+def test_hebrew_brief_publishes_rtl_page(studio_env):
+    conversation = db.create_conversation()
+    graph.run_turn(
+        conversation["id"],
+        "Offer: סדנת מכירות לצוותים\nAudience: מנהלי מכירות\nCTA: קבעו שיחה",
+    )
+    site = Path(db.get_conversation(conversation["id"])["site_path"])
+    page = json.loads((site / "page.json").read_text(encoding="utf-8"))
+    html = (site / "index.html").read_text(encoding="utf-8")
+    assert page["language"] == "he"
+    assert page["dir"] == "rtl"
+    assert '<html lang="he" dir="rtl">' in html
+
+
+def test_english_page_stays_ltr(studio_env):
+    conversation = db.create_conversation()
+    graph.run_turn(
+        conversation["id"],
+        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+    )
+    html = Path(db.get_conversation(conversation["id"])["site_path"], "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert '<html lang="en">' in html
+    assert "<html lang=\"en\" dir=\"rtl\">" not in html

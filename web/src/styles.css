@@ -117,6 +117,8 @@ input {
 }
 
 .thread {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 12px;
   display: flex;
@@ -138,6 +140,10 @@ input {
 
 .bubble a {
   color: var(--text);
+}
+
+.bubble.pending {
+  color: var(--muted);
 }
 
 .composer {

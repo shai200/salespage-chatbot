@@ -50,11 +50,16 @@ Generated sales pages SHALL be authored as React and SHALL be prerendered to sta
 - **WHEN** the operator opens the conversation’s localhost URL in a new tab
 - **THEN** they see the generated sales page, not the studio three-pane shell
 
-### Requirement: Image provider is swappable
+### Requirement: Visual stage generates images via the remote gateway
 
-The visual stage SHALL obtain images through a provider interface. If no image provider is configured, generation MUST still complete with placeholders.
+The visual stage SHALL request images from the same remote model gateway used for language (OpenRouter), using that gateway’s image API. Generated image bytes SHALL be stored on disk with the sales page and referenced from the page. The image model SHALL be configurable. If the image request fails or returns no images, generation MUST still complete with placeholders and an operator-visible note.
 
-#### Scenario: No image provider yet
+#### Scenario: Successful image generation
 
-- **WHEN** copy and page code run but no image provider is configured
+- **WHEN** intake is complete, the gateway key is configured, and the image API returns image data
+- **THEN** the published page includes those images as files on disk (not only a pending placeholder)
+
+#### Scenario: Image request fails
+
+- **WHEN** the image API errors or returns no images
 - **THEN** the page is still published with placeholder graphics and an operator-visible note that images are pending

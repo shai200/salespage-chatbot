@@ -15,7 +15,7 @@ See `proposal.md` for motivation. The repo today is a single Node process: stati
 
 - Multi-tenant SaaS, auth, or hosting pages on GitHub Pages / Kubernetes.
 - Visitor-facing FAQ bot on the generated page (runtime chat can come later).
-- Local LLMs or a chosen image vendor (provider interface only).
+- Local LLMs or local image models. Images go through OpenRouter (default `meta/muse-image`).
 - Replacing OpenSpec with `docs/adr` as the source of truth (ADRs optional at apply).
 
 ## Decisions
@@ -43,9 +43,41 @@ Graph state holds brief, copy, image refs, file paths, port. Nodes: copywriter, 
 
 **Alternative:** CrewAI crews (faster demo, weaker durable HITL and port/file state).
 
-### 5. Models: OpenRouter
+### 5. Models: OpenRouter (language and images)
 
-LangChain (or SDK) chat model with OpenRouter base URL. `OPENROUTER_API_KEY` in `.env`. No Ollama requirement.
+Language nodes use a chat model via OpenRouter (`OPENROUTER_BASE_URL`, default `https://openrouter.ai/api/v1`; `OPENROUTER_MODEL`). `OPENROUTER_API_KEY` in `.env`. No Ollama requirement.
+
+The **visual** LangGraph node is the image agent. It MUST call OpenRouter’s image endpoint (not the chat completions API), decode `b64_json`, and write PNGs under `sites/<slug>/` (for example `public/hero.png`). Default image model: `meta/muse-image`, overridable with `OPENROUTER_IMAGE_MODEL`. Prompt comes from the copy/brief (hero and section art). On HTTP or empty `data`, keep today’s placeholder visuals so publish still succeeds.
+
+Example (visual node implementation):
+
+```python
+import os
+import json
+import base64
+import requests
+
+response = requests.post(
+  url="https://openrouter.ai/api/v1/images",
+  headers={
+    "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}",
+    "Content-Type": "application/json",
+  },
+  data=json.dumps({
+    "model": os.environ.get("OPENROUTER_IMAGE_MODEL", "meta/muse-image"),
+    "prompt": "A serene mountain landscape at sunset with dramatic clouds"
+  })
+)
+
+result = response.json()
+for i, image in enumerate(result.get("data", [])):
+  image_bytes = base64.b64decode(image["b64_json"])
+  with open(f"output_{i}.png", "wb") as f:
+    f.write(image_bytes)
+  print(f"Saved image {i + 1}")
+```
+
+In production code, write those bytes into the conversation’s `sites/<slug>/` tree and put the public paths on graph state (`visuals.hero.src`, etc.) for the page engineer. Do not commit the API key; read it from the environment as above.
 
 ### 6. Memory: one SQLite file
 
@@ -86,5 +118,5 @@ This change’s `design.md` + delta specs are the architecture record. ADR 0001 
 ## Open Questions
 
 - Concrete display font (serif vs tight sans) — does not change specs.
-- Concrete OpenRouter model ids — configuration, not behavior.
-- Image vendor (e.g. Nano Banana) — deferred behind the provider interface.
+- Concrete OpenRouter **chat** model id — configuration (`OPENROUTER_MODEL`).
+- How many images per page (hero only vs hero + section) — start with hero; extra shots can follow without changing the API.

@@ -19,6 +19,7 @@ cd pagekit && npm install && cd ..
 # .env is gitignored — do not commit it
 # OPENROUTER_API_KEY=sk-or-...
 # optional: OPENROUTER_MODEL=openai/gpt-4o-mini
+# optional: OPENROUTER_IMAGE_MODEL=meta/muse-image
 
 python -m studio
 ```

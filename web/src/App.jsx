@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createConversation, getConversation, listConversations, sendMessage } from "./api.js";
 
 const URL_RE = /(https?:\/\/localhost:\d+\/?)/g;
@@ -25,6 +25,7 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const threadRef = useRef(null);
 
   async function refreshList(selectId) {
     const rows = await listConversations();
@@ -41,6 +42,13 @@ export function App() {
   useEffect(() => {
     refreshList().catch((err) => setError(err.message));
   }, []);
+
+  useEffect(() => {
+    const node = threadRef.current;
+    if (node) {
+      node.scrollTop = node.scrollHeight;
+    }
+  }, [active?.messages, busy]);
 
   async function onNew() {
     setError("");
@@ -59,11 +67,22 @@ export function App() {
     if (!activeId || !draft.trim() || busy) {
       return;
     }
-    setBusy(true);
+    const text = draft.trim();
+    const optimistic = {
+      id: `local-${Date.now()}`,
+      role: "user",
+      content: text,
+    };
+    setDraft("");
     setError("");
+    setBusy(true);
+    setActive((current) =>
+      current
+        ? { ...current, messages: [...(current.messages || []), optimistic] }
+        : current,
+    );
     try {
-      await sendMessage(activeId, draft.trim());
-      setDraft("");
+      await sendMessage(activeId, text);
       await refreshList(activeId);
     } catch (err) {
       setError(err.message);
@@ -112,12 +131,13 @@ export function App() {
           <h2>{active?.title || "Thread"}</h2>
           <span className="list-meta">{status}</span>
         </div>
-        <div className="thread">
+        <div className="thread" ref={threadRef}>
           {messages.map((message) => (
             <div key={message.id} className={`bubble ${message.role}`}>
               <MessageBody content={message.content} />
             </div>
           ))}
+          {busy ? <div className="bubble pending">Working…</div> : null}
           {error ? <div className="bubble">{error}</div> : null}
         </div>
         <form className="composer" onSubmit={onSend}>
@@ -125,7 +145,7 @@ export function App() {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Offer, audience, and CTA — or an edit to this page"
-            disabled={!activeId || busy}
+            disabled={!activeId}
           />
           <button className="primary-btn" type="submit" disabled={!activeId || busy}>
             {busy ? "Working" : "Send"}

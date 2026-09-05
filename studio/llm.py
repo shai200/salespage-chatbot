@@ -125,7 +125,8 @@ Return ONLY JSON with this shape:
   "offer": {{"title": string, "body": string, "price": string}},
   "faq": [{{"q": string, "a": string}}, {{"q": string, "a": string}}],
   "cta": {{"label": string, "text": string}},
-  "footer": string
+  "footer": string,
+  "language": "he" or "en"
 }}
 
 Offer: {offer}
@@ -135,6 +136,7 @@ Operator request: {user_message}
 Previous copy JSON (may be empty): {previous_json}
 
 If the operator asked only to change copy, keep structure and update the requested lines.
+If the operator wrote in Hebrew or asked for a Hebrew page, write the page copy in Hebrew and set language to "he".
 Use a white-page editorial voice. Do not mention being an AI.
 """
     try:

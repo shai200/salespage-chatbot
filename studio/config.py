@@ -21,6 +21,7 @@ PAGE_PORT_START = 3000
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip()
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini").strip()
+OPENROUTER_IMAGE_MODEL = os.getenv("OPENROUTER_IMAGE_MODEL", "meta/muse-image").strip()
 STUDIO_FAKE_LLM = os.getenv("STUDIO_FAKE_LLM", "").strip() in {"1", "true", "yes"}
 
 

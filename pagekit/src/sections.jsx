@@ -15,7 +15,7 @@ function accentuate(headline, accent) {
   );
 }
 
-export function Hero({ headline, accent, subheadline, ctaLabel, visualLabel }) {
+export function Hero({ headline, accent, subheadline, ctaLabel, visualLabel, src }) {
   return (
     <section className="section hero">
       <p className="section-label">Sales page</p>
@@ -28,7 +28,11 @@ export function Hero({ headline, accent, subheadline, ctaLabel, visualLabel }) {
           </a>
         </p>
       ) : null}
-      <div className="placeholder-visual">{visualLabel || "Visual pending"}</div>
+      {src ? (
+        <img className="hero-visual" src={src} alt={visualLabel || ""} />
+      ) : (
+        <div className="placeholder-visual">{visualLabel || "Visual pending"}</div>
+      )}
     </section>
   );
 }
