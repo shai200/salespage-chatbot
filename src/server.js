@@ -51,9 +51,6 @@ function createServer() {
         body += chunk;
         if (Buffer.byteLength(body) > maxRequestBodySize) {
           requestTooLarge = true;
-          response.once('finish', () => {
-            request.destroy();
-          });
           sendJson(response, 413, { error: 'Request body too large' });
         }
       });
