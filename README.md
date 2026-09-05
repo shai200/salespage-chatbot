@@ -1,4 +1,4 @@
-# salespage-chatbot
+# Homerun Sales Page Builder
 
 Local **sales page studio**: a chatbot that writes a React sales page per conversation and hosts it on localhost.
 
@@ -26,15 +26,15 @@ python -m studio
 
 Open `http://localhost:8080`.
 
-Each conversation is one sales page. After publish, the thread includes `http://localhost:<port>/` (opens in a new tab) and the right pane loads the same URL.
+Each conversation is one sales page. After publish, the thread includes `http://localhost:8080/<slug>/` (opens in a new tab) and the right pane loads the same URL.
 
-### Page ports
+### Page URLs
 
-The studio stays on **8080**. Generated pages are Node static servers:
+The studio stays on **8080**. Generated pages are static files served on the same origin:
 
-- first page → `http://localhost:3000/`
-- next pages → `3001`, `3002`, …
-- rebuilding the same conversation keeps the same port
+- a page with slug `northline-briefings-85fbe9b4` → `http://localhost:8080/northline-briefings-85fbe9b4/`
+- rebuilding that conversation keeps the same path
+- `/`, `/api`, `/assets`, and `/health` stay the studio
 
 Site files live in `sites/<slug>/` (React source + prerendered `index.html`). SQLite is `data/studio.sqlite`.
 

@@ -14,9 +14,12 @@ DB_PATH = DATA_DIR / "studio.sqlite"
 WEB_DIST = ROOT / "web" / "dist"
 PAGEKIT_DIR = ROOT / "pagekit"
 
-STUDIO_HOST = "127.0.0.1"
-STUDIO_PORT = 8080
+STUDIO_HOST = os.getenv("STUDIO_HOST", "127.0.0.1").strip() or "127.0.0.1"
+STUDIO_PORT = int(os.getenv("STUDIO_PORT", "8080") or "8080")
 PAGE_PORT_START = 3000
+PUBLISH_MODE = os.getenv("PUBLISH_MODE", "local").strip().lower() or "local"
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+RESERVED_SLUGS = frozenset({"api", "assets", "health", "static"})
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip()
@@ -33,5 +36,17 @@ def missing_api_key_message() -> str:
     )
 
 
-def preview_url(port: int) -> str:
-    return f"http://localhost:{port}/"
+def is_static_publish() -> bool:
+    return True
+
+
+def public_origin() -> str:
+    if PUBLIC_BASE_URL:
+        return PUBLIC_BASE_URL
+    return f"http://localhost:{STUDIO_PORT}"
+
+
+def preview_url(port: int | None = None, slug: str = "") -> str | None:
+    if slug:
+        return f"{public_origin()}/{slug}/"
+    return None

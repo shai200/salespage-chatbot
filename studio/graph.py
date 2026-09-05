@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import sqlite3
 from typing import Any, TypedDict
 
@@ -36,6 +37,66 @@ class StudioState(TypedDict, total=False):
 _checkpointer: SqliteSaver | None = None
 _checkpoint_conn: sqlite3.Connection | None = None
 _graph = None
+
+STAGE_INFO = {
+    "intake": {
+        "label": "Reading the brief",
+        "detail": "Checking offer, audience, and CTA",
+        "short": "Reading",
+    },
+    "copywriter": {
+        "label": "Writing the page copy",
+        "detail": "Headline, sections, proof, and CTA",
+        "short": "Writing",
+    },
+    "visual": {
+        "label": "Generating the hero image",
+        "detail": "This can take a moment",
+        "short": "Imaging",
+    },
+    "page_engineer": {
+        "label": "Building the page",
+        "detail": "Assembling React and HTML",
+        "short": "Building",
+    },
+    "publisher": {
+        "label": "Publishing the preview",
+        "detail": "Starting the local server",
+        "short": "Publishing",
+    },
+}
+
+
+def stage_progress(name: str, state: StudioState | None = None) -> dict[str, str]:
+    if name == "visual" and state and state.get("skip_visual"):
+        return {
+            "stage": "visual",
+            "label": "Keeping existing visuals",
+            "detail": "Copy-only change — skipping image generation",
+            "short": "Updating",
+        }
+    info = STAGE_INFO.get(name) or {
+        "label": "Working",
+        "detail": "",
+        "short": "Working",
+    }
+    return {"stage": name, **info}
+
+
+def next_stage(completed: str, state: StudioState) -> str | None:
+    if completed == "intake":
+        if state.get("error") or not state.get("intake_complete"):
+            return None
+        return "copywriter"
+    if completed == "copywriter":
+        if state.get("error"):
+            return None
+        return "visual"
+    if completed == "visual":
+        return "page_engineer"
+    if completed == "page_engineer":
+        return "publisher"
+    return None
 
 
 def _copy_only_follow_up(message: str, has_page: bool) -> bool:
@@ -75,7 +136,7 @@ def intake_node(state: StudioState) -> dict[str, Any]:
         llm_extract,
     )
     db.update_conversation(state["conversation_id"], **merged)
-    if merged["offer"] and (not conversation.get("title") or conversation.get("title") == "New sales page"):
+    if merged["offer"] and (not conversation.get("title") or conversation.get("title") == "Untitled page"):
         db.update_conversation(state["conversation_id"], title=merged["offer"][:80])
 
     if not intake.is_complete(merged):
@@ -176,7 +237,7 @@ def visual_node(state: StudioState) -> dict[str, Any]:
     slug = conversation.get("slug") or state.get("slug")
     if not slug:
         slug = pages.unique_slug(state.get("offer") or "sales-page", state["conversation_id"])
-    site_dir = db.conversation_site_dir(slug)
+    site_dir = pages.staging_site_dir(slug)
     db.update_conversation(state["conversation_id"], slug=slug)
 
     visuals = _placeholder_visuals()
@@ -196,10 +257,12 @@ def visual_node(state: StudioState) -> dict[str, Any]:
             f"Images are pending — OpenRouter image request failed ({exc})."
         )
 
+    pending = bool(visuals.get("images_pending"))
+    db.update_conversation(state["conversation_id"], slug=slug, images_pending=pending)
     return {
         "visuals": visuals,
         "slug": slug,
-        "images_pending": bool(visuals.get("images_pending")),
+        "images_pending": pending,
         "stages_run": _append_stage(state, "visual"),
     }
 
@@ -209,7 +272,12 @@ def page_engineer_node(state: StudioState) -> dict[str, Any]:
     slug = conversation.get("slug") or state.get("slug")
     if not slug:
         slug = pages.unique_slug(state.get("offer") or "sales-page", state["conversation_id"])
-    site_dir = db.conversation_site_dir(slug)
+    site_dir = pages.staging_site_dir(slug)
+    live = pages.live_site_dir(slug)
+    hero = live / "hero.png"
+    if hero.exists():
+        site_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(hero, site_dir / "hero.png")
     page_data = pages.page_data_from_copy(
         state.get("copy") or {},
         state.get("visuals") or {},
@@ -224,7 +292,6 @@ def page_engineer_node(state: StudioState) -> dict[str, Any]:
     db.update_conversation(
         state["conversation_id"],
         slug=slug,
-        site_path=str(site_dir),
         status="built",
     )
     return {"slug": slug, "stages_run": _append_stage(state, "page_engineer")}
@@ -235,7 +302,7 @@ def publisher_node(state: StudioState) -> dict[str, Any]:
     if not conversation:
         return {"error": "Conversation disappeared before publish."}
     hosted = publisher.ensure_hosted(conversation)
-    url = config.preview_url(int(hosted["port"]))
+    url = config.preview_url(port=hosted.get("port"), slug=hosted.get("slug") or state.get("slug") or "")
     note = ""
     visuals = state.get("visuals") or {}
     if visuals.get("images_pending"):
@@ -310,13 +377,13 @@ def reset_runtime() -> None:
     _graph = None
 
 
-def run_turn(conversation_id: str, user_message: str) -> StudioState:
+def _turn_payload(conversation_id: str, user_message: str) -> tuple[StudioState, dict[str, Any]]:
     conversation = db.get_conversation(conversation_id) or {}
-    graph = get_graph()
+    compiled = get_graph()
     thread = {"configurable": {"thread_id": conversation_id}}
     previous: dict[str, Any] = {}
     try:
-        snapshot = graph.get_state(thread)
+        snapshot = compiled.get_state(thread)
         if snapshot and snapshot.values:
             previous = dict(snapshot.values)
     except Exception:
@@ -338,4 +405,29 @@ def run_turn(conversation_id: str, user_message: str) -> StudioState:
         "error": "",
         "assistant_message": "",
     }
-    return graph.invoke(payload, thread)
+    return payload, thread
+
+
+def iter_turn_events(conversation_id: str, user_message: str):
+    payload, thread = _turn_payload(conversation_id, user_message)
+    compiled = get_graph()
+    yield {"type": "progress", **stage_progress("intake", payload)}
+    last: dict[str, Any] = dict(payload)
+    for chunk in compiled.stream(payload, thread, stream_mode="updates"):
+        if not chunk:
+            continue
+        node = next(iter(chunk))
+        update = chunk[node] or {}
+        last.update(update)
+        following = next_stage(node, last)
+        if following:
+            yield {"type": "progress", **stage_progress(following, last)}
+    yield {"type": "result", "state": last}
+
+
+def run_turn(conversation_id: str, user_message: str) -> StudioState:
+    result: StudioState = {}
+    for event in iter_turn_events(conversation_id, user_message):
+        if event.get("type") == "result":
+            result = event.get("state") or {}
+    return result

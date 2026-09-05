@@ -47,7 +47,40 @@ def slugify(value: str) -> str:
 
 
 def unique_slug(base: str, conversation_id: str) -> str:
-    return f"{slugify(base)[:40]}-{conversation_id[:8]}"
+    head = slugify(base)[:40]
+    if head in config.RESERVED_SLUGS:
+        head = f"page-{head}"
+    slug = f"{head}-{conversation_id[:8]}"
+    if slug in config.RESERVED_SLUGS:
+        slug = f"page-{conversation_id[:8]}"
+    return slug
+
+
+def staging_site_dir(slug: str) -> Path:
+    return config.SITES_DIR / ".staging" / slug
+
+
+def live_site_dir(slug: str) -> Path:
+    return config.SITES_DIR / slug
+
+
+def promote_staged_site(slug: str) -> Path:
+    staging = staging_site_dir(slug)
+    live = live_site_dir(slug)
+    if (staging / "index.html").exists():
+        live.parent.mkdir(parents=True, exist_ok=True)
+        previous = config.SITES_DIR / ".staging" / f"{slug}.old"
+        if previous.exists():
+            shutil.rmtree(previous)
+        if live.exists():
+            live.replace(previous)
+        staging.replace(live)
+        if previous.exists():
+            shutil.rmtree(previous, ignore_errors=True)
+        return live
+    if (live / "index.html").exists():
+        return live
+    raise RuntimeError(f"Cannot publish {slug}: index.html is missing")
 
 
 def _jsx_string(value: Any) -> str:
@@ -170,7 +203,7 @@ def page_data_from_copy(
         },
         "faq": copy.get("faq") or [],
         "cta": copy.get("cta") or {"label": cta_label, "text": ""},
-        "footer": copy.get("footer") or "Generated locally by Sales Page Studio.",
+        "footer": copy.get("footer") or "Generated with Homerun Sales Page Builder.",
         "images_pending": bool(visuals.get("images_pending", True)),
     }
 

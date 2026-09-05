@@ -32,7 +32,58 @@ input {
 .app {
   display: grid;
   grid-template-columns: 240px minmax(320px, 1fr) minmax(280px, 1fr);
+  grid-template-rows: 44px 1fr;
   height: 100vh;
+}
+
+.app-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--text);
+}
+
+.brand-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.brand-text strong {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.brand-text span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.app-bar-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .pane {
@@ -83,6 +134,16 @@ input {
   opacity: 0.88;
 }
 
+.icon-btn:disabled,
+.primary-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.icon-btn.pressed {
+  background: var(--active);
+}
+
 .list {
   overflow: auto;
 }
@@ -108,12 +169,93 @@ input {
 .list-title {
   display: block;
   font-weight: 600;
+  text-align: start;
 }
 
 .list-meta {
   display: block;
   color: var(--muted);
   margin-top: 2px;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.pane-head .pills,
+.app-bar-meta .pills {
+  margin-top: 0;
+}
+
+.pill {
+  display: inline-block;
+  border: 1px solid var(--line);
+  padding: 1px 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.pill.live,
+.pill.generating {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.pill.error {
+  color: var(--text);
+}
+
+.toolbar-link {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.preview-head {
+  flex-wrap: wrap;
+}
+
+.preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  background: var(--hover);
+}
+
+.preview-wrap.mobile .preview-frame {
+  width: 390px;
+  max-width: 100%;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+.thread-starter {
+  color: var(--muted);
+  max-width: 22rem;
+}
+
+.thread-starter p,
+.thread-starter ul {
+  margin: 0 0 8px;
+}
+
+.thread-starter ul {
+  padding-inline-start: 1.2em;
+}
+
+.thread-starter li {
+  margin: 0 0 4px;
 }
 
 .thread {
@@ -130,7 +272,7 @@ input {
   max-width: 36rem;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  white-space: pre-wrap;
+  text-align: start;
 }
 
 .bubble.user {
@@ -138,12 +280,88 @@ input {
   background: var(--hover);
 }
 
+.bubble[dir="rtl"].user {
+  align-self: flex-start;
+}
+
 .bubble a {
   color: var(--text);
 }
 
+.bubble p,
+.bubble ul,
+.bubble ol,
+.bubble pre,
+.bubble blockquote {
+  margin: 0 0 8px;
+}
+
+.bubble p:last-child,
+.bubble ul:last-child,
+.bubble ol:last-child,
+.bubble pre:last-child,
+.bubble blockquote:last-child {
+  margin-bottom: 0;
+}
+
+.bubble h1,
+.bubble h2,
+.bubble h3,
+.bubble h4 {
+  margin: 0 0 8px;
+  font-size: 1em;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.bubble ul,
+.bubble ol {
+  padding-inline-start: 1.3em;
+}
+
+.bubble code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+}
+
+.bubble pre {
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: var(--hover);
+}
+
+.bubble pre code {
+  white-space: pre;
+}
+
 .bubble.pending {
   color: var(--muted);
+}
+
+.progress-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progress-steps .done {
+  color: var(--muted);
+}
+
+.progress-steps .current {
+  color: var(--text);
+}
+
+.progress-detail {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .composer {
@@ -159,6 +377,7 @@ input {
   resize: vertical;
   border: 1px solid var(--line);
   padding: 8px;
+  text-align: start;
 }
 
 .empty,
@@ -171,13 +390,14 @@ input {
   flex: 1;
   border: 0;
   width: 100%;
+  height: 100%;
   background: var(--bg);
 }
 
 @media (max-width: 900px) {
   .app {
     grid-template-columns: 1fr;
-    grid-template-rows: 160px 1fr 40vh;
+    grid-template-rows: 44px 160px 1fr 40vh;
   }
 
   .pane {

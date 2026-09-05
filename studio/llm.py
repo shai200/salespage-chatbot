@@ -38,7 +38,7 @@ SAMPLE_COPY = {
         {"q": "Can I change the headline?", "a": "Yes. Follow up in the same conversation."},
     ],
     "cta": {"label": "Book a walkthrough", "text": "Ready to put this offer in front of buyers?"},
-    "footer": "Generated locally by Sales Page Studio.",
+    "footer": "Generated with Homerun Sales Page Builder.",
 }
 
 
@@ -68,7 +68,7 @@ def _chat_model():
         max_retries=1,
         default_headers={
             "HTTP-Referer": "http://localhost:8080",
-            "X-Title": "Sales Page Studio",
+            "X-Title": "Homerun Sales Page Builder",
         },
     )
 

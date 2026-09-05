@@ -36,6 +36,7 @@ def init() -> None:
                 offer TEXT,
                 audience TEXT,
                 cta TEXT,
+                images_pending INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -50,12 +51,19 @@ def init() -> None:
             );
             """
         )
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(conversations)").fetchall()
+        }
+        if "images_pending" not in columns:
+            conn.execute(
+                "ALTER TABLE conversations ADD COLUMN images_pending INTEGER NOT NULL DEFAULT 0"
+            )
         conn.commit()
     finally:
         conn.close()
 
 
-def create_conversation(title: str = "New sales page") -> dict[str, Any]:
+def create_conversation(title: str = "Untitled page") -> dict[str, Any]:
     now = utcnow()
     row = {
         "id": str(uuid4()),
@@ -68,6 +76,7 @@ def create_conversation(title: str = "New sales page") -> dict[str, Any]:
         "offer": None,
         "audience": None,
         "cta": None,
+        "images_pending": 0,
         "created_at": now,
         "updated_at": now,
     }
@@ -77,10 +86,10 @@ def create_conversation(title: str = "New sales page") -> dict[str, Any]:
             """
             INSERT INTO conversations (
                 id, title, slug, port, site_path, pid, status,
-                offer, audience, cta, created_at, updated_at
+                offer, audience, cta, images_pending, created_at, updated_at
             ) VALUES (
                 :id, :title, :slug, :port, :site_path, :pid, :status,
-                :offer, :audience, :cta, :created_at, :updated_at
+                :offer, :audience, :cta, :images_pending, :created_at, :updated_at
             )
             """,
             row,
@@ -139,8 +148,11 @@ def update_conversation(conversation_id: str, **fields: Any) -> dict[str, Any] |
         "offer",
         "audience",
         "cta",
+        "images_pending",
     }
     updates = {key: value for key, value in fields.items() if key in allowed}
+    if "images_pending" in updates:
+        updates["images_pending"] = 1 if updates["images_pending"] else 0
     if not updates:
         return get_conversation(conversation_id)
     updates["updated_at"] = utcnow()

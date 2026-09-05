@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from studio import config, db, graph, intake, llm, pages, publisher
+from studio import config, db, graph, intake, llm, pages
 
 
 def test_health_ok(client):
@@ -18,6 +18,14 @@ def test_conversation_roundtrip(studio_env):
     assert loaded is not None
     assert loaded["id"] == created["id"]
     assert loaded["title"] == "Pilot offer"
+    assert loaded["images_pending"] == 0
+
+
+def test_public_conversation_includes_images_pending(client):
+    created = client.post("/api/conversations").json()
+    assert created["images_pending"] is False
+    listed = client.get("/api/conversations").json()
+    assert listed[0]["images_pending"] is False
 
 
 def test_missing_key_errors_on_generate(studio_env, monkeypatch, client):
@@ -37,11 +45,16 @@ def test_missing_key_errors_on_generate(studio_env, monkeypatch, client):
     assert "publisher" not in body["stages_run"]
 
 
+def test_missing_slug_is_not_a_published_page(client):
+    response = client.get("/no-such-page/")
+    assert response.status_code == 404
+
+
 def test_studio_ui_is_served(client):
     response = client.get("/")
     assert response.status_code == 200
     payload = response.text if response.headers["content-type"].startswith("text/html") else str(response.json())
-    assert "Sales Page Studio" in payload or "studio UI" in payload
+    assert "Homerun" in payload or "studio UI" in payload
 
 
 def test_new_conversation_and_switch(client):
@@ -98,6 +111,68 @@ def test_sample_page_has_sales_sections(studio_env):
     for label in ("Sales page", "Problem", "Benefits", "Proof", "Offer", "FAQ", "Call to action"):
         assert label in html
     assert "dashboard" not in html.lower()
+
+
+def test_turn_events_start_with_intake_then_later_stages(studio_env):
+    conversation = db.create_conversation()
+    events = list(
+        graph.iter_turn_events(
+            conversation["id"],
+            "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+        )
+    )
+    progress = [item for item in events if item["type"] == "progress"]
+    assert progress[0]["stage"] == "intake"
+    assert progress[0]["label"] == "Reading the brief"
+    assert [item["stage"] for item in progress] == [
+        "intake",
+        "copywriter",
+        "visual",
+        "page_engineer",
+        "publisher",
+    ]
+    assert events[-1]["type"] == "result"
+    assert events[-1]["state"]["stages_run"][-1] == "publisher"
+
+
+def test_message_stream_reports_stages(client):
+    conversation = client.post("/api/conversations").json()
+    response = client.post(
+        f"/api/conversations/{conversation['id']}/messages",
+        json={"content": "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call"},
+        headers={"Accept": "text/event-stream"},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: progress" in response.text
+    assert "Reading the brief" in response.text
+    assert "Writing the page copy" in response.text
+    assert "event: done" in response.text
+    assert "http://localhost:" in response.text
+
+
+def test_reserved_slug_is_not_exact_reserved_name():
+    slug = pages.unique_slug("api", "aaaaaaaa-bbbb")
+    assert slug != "api"
+    assert slug.startswith("page-")
+
+
+def test_static_publish_uses_origin_slug_url(studio_env, monkeypatch):
+    monkeypatch.setattr(config, "PUBLISH_MODE", "static")
+    monkeypatch.setattr(config, "PUBLIC_BASE_URL", "https://homerun.love")
+    conversation = db.create_conversation()
+    result = graph.run_turn(
+        conversation["id"],
+        "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
+    )
+    slug = result["slug"]
+    assert result["preview_url"] == f"https://homerun.love/{slug}/"
+    refreshed = db.get_conversation(conversation["id"])
+    assert refreshed["port"] is None
+    assert refreshed["pid"] is None
+    live = pages.live_site_dir(slug)
+    assert (live / "index.html").exists()
+    assert not (pages.staging_site_dir(slug) / "index.html").exists()
 
 
 def test_graph_runs_stages_in_order(studio_env):
@@ -159,6 +234,7 @@ def test_placeholder_visuals_still_publish(studio_env):
         "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
     )
     assert result["visuals"]["images_pending"] is True
+    assert db.get_conversation(conversation["id"])["images_pending"] == 1
     html = Path(db.get_conversation(conversation["id"])["site_path"], "index.html").read_text(
         encoding="utf-8"
     )
@@ -175,6 +251,7 @@ def test_image_success_writes_png(studio_env, monkeypatch):
     )
     site = Path(db.get_conversation(conversation["id"])["site_path"])
     assert result["visuals"]["images_pending"] is False
+    assert db.get_conversation(conversation["id"])["images_pending"] == 0
     assert result["visuals"]["hero"]["src"] == "hero.png"
     assert (site / "hero.png").read_bytes() == TINY_PNG
     html = (site / "index.html").read_text(encoding="utf-8")
@@ -211,28 +288,32 @@ def test_site_files_are_isolated(studio_env):
     assert "Beta" in (two / "index.html").read_text(encoding="utf-8")
 
 
-def test_two_conversations_get_sequential_ports(studio_env, monkeypatch):
-    monkeypatch.setattr(config, "PAGE_PORT_START", 3000)
+def test_two_conversations_get_distinct_slug_urls(studio_env, client):
     first = db.create_conversation()
     second = db.create_conversation()
     one = graph.run_turn(first["id"], "Offer: Alpha\nAudience: A\nCTA: Start")
     two = graph.run_turn(second["id"], "Offer: Beta\nAudience: B\nCTA: Join")
-    assert one["port"] == 3000 or publisher.port_is_free(3000) is False
-    assert two["port"] != one["port"]
-    assert two["port"] > one["port"]
-    if one["port"] == 3000:
-        assert two["port"] == 3001
+    assert one["slug"] != two["slug"]
+    assert one["preview_url"] == f"http://localhost:8080/{one['slug']}/"
+    assert two["preview_url"] == f"http://localhost:8080/{two['slug']}/"
+    page_one = client.get(f"/{one['slug']}/")
+    page_two = client.get(f"/{two['slug']}/")
+    assert page_one.status_code == 200
+    assert page_two.status_code == 200
+    assert "Alpha" in page_one.text
+    assert "Beta" in page_two.text
 
 
-def test_rebuild_keeps_port(studio_env):
+def test_rebuild_keeps_slug_url(studio_env):
     conversation = db.create_conversation()
     first = graph.run_turn(
         conversation["id"],
         "Offer: Launch kit\nAudience: indie founders\nCTA: Book a call",
     )
     second = graph.run_turn(conversation["id"], "Make the headline punchier")
-    assert first["port"] == second["port"]
+    assert first["slug"] == second["slug"]
     assert first["preview_url"] == second["preview_url"]
+    assert first["preview_url"].endswith(f"/{first['slug']}/")
 
 
 def test_publish_message_includes_new_tab_url(studio_env, client):
@@ -243,8 +324,12 @@ def test_publish_message_includes_new_tab_url(studio_env, client):
     )
     body = response.json()
     url = body["preview_url"]
-    assert url.startswith("http://localhost:")
+    assert body["conversation"]["images_pending"] is True
+    assert url.startswith("http://localhost:8080/")
+    assert url.endswith("/")
     assert url in body["assistant"]["content"]
+    page = client.get(f"/{body['conversation']['slug']}/")
+    assert page.status_code == 200
     detail = client.get(f"/api/conversations/{conversation['id']}").json()
     assert detail["preview_url"] == url
 
