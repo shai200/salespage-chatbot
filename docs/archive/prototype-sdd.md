@@ -1,3 +1,9 @@
+# Historical: prototype SDD (visitor FAQ chatbot)
+
+Archived. This is **not** the studio product. Current architecture: `openspec/changes/sales-page-studio/`.
+
+---
+
 # Software Design Document
 
 ## Goal

@@ -31,4 +31,4 @@ The repo is a visitor-facing regex chatbot on a static sales page. The product w
 - Generated sites under `sites/<slug>/`, served by Node on 3000+.
 - `.env` holds `OPENROUTER_API_KEY` (already gitignored).
 - Current `src/server.js` / `public/` regex chatbot is superseded as the product; keep or retire during apply.
-- ADR 0001 (static HTML, no deps, visitor bot) is superseded by this change’s design; new ADRs can be added at apply time if desired. `docs/sdd.md` and `docs/openspec/chatbot-api.yaml` describe the old API, not this studio.
+- ADR 0001 is superseded by this change’s design. The old visitor-bot SDD lives in `docs/archive/prototype-sdd.md`. `docs/openspec/` was removed (it was an OpenAPI file for the prototype, not OpenSpec).

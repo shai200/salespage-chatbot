@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [sales-page-studio design](../../openspec/changes/sales-page-studio/design.md)
 
 ## Context
 
@@ -21,3 +21,7 @@ Use:
 - No external dependencies are required
 - The project stays easy to run and test
 - The chatbot is intentionally simple and rule-based for this first version
+
+## Supersession
+
+This described the visitor FAQ prototype (`src/server.js`, `public/`). The product is the local studio chatbot (Python + React on port 8080, generated pages on 3000+). Do not treat this ADR as current architecture.
