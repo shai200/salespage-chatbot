@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SalesPage Chatbot</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">SalesPage AI</p>
+        <h1>Convert more visitors with an always-on sales chatbot.</h1>
+        <p class="summary">
+          Answer pricing, demo, feature, and integration questions directly on your landing page.
+        </p>
+        <a class="cta" href="#chatbot">Ask the chatbot</a>
+      </section>
+
+      <section id="chatbot" class="chatbot">
+        <h2>Chat with sales</h2>
+        <div id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions">
+          <div class="message bot">Hi! Ask about pricing, demos, features, or integrations.</div>
+        </div>
+        <form id="chat-form" class="chat-form">
+          <label class="sr-only" for="message">Message</label>
+          <input id="message" name="message" type="text" placeholder="How much does it cost?" required />
+          <button type="submit">Send</button>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="/client.js"></script>
+  </body>
+</html>

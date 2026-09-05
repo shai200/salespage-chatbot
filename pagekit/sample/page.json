@@ -1,0 +1,55 @@
+{
+  "title": "Northline Briefings",
+  "hero": {
+    "headline": "Close the room before the deck gets old",
+    "accent": "before the deck gets old",
+    "subheadline": "A one-page brief for operators who sell workshops to mid-market teams.",
+    "ctaLabel": "Book a walkthrough",
+    "visualLabel": "Hero visual pending"
+  },
+  "problem": {
+    "title": "Your offer is clear. The page is not.",
+    "body": "Prospects get a PDF, a Notion doc, and a calendar link. They never see the outcome, the proof, or a single next step."
+  },
+  "benefits": [
+    {
+      "title": "One story",
+      "body": "Hero, problem, proof, and offer in a sequence buyers already understand."
+    },
+    {
+      "title": "One action",
+      "body": "A single CTA so the page does not compete with itself."
+    },
+    {
+      "title": "Live locally",
+      "body": "Preview on localhost and send the tab while the conversation is warm."
+    }
+  ],
+  "proof": [
+    {
+      "quote": "We stopped rebuilding the landing page the night before every launch.",
+      "name": "Maya, workshop studio"
+    }
+  ],
+  "offer": {
+    "title": "Northline Briefings",
+    "body": "A half-day working session that leaves you with a page, not another slide deck.",
+    "price": "From $2,400",
+    "ctaLabel": "Book a walkthrough"
+  },
+  "faq": [
+    {
+      "q": "Who is this for?",
+      "a": "Operators selling a defined offer to a specific audience."
+    },
+    {
+      "q": "Do we need custom design?",
+      "a": "No. The editorial kit is the design."
+    }
+  ],
+  "cta": {
+    "text": "Ready to put this offer in front of buyers?",
+    "label": "Book a walkthrough"
+  },
+  "footer": "Northline Briefings · Local sample page"
+}
