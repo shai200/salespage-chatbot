@@ -9,7 +9,9 @@ pagekit/node_modules
 web/dist
 **/.DS_Store
 .env
+.env.*
 civo-love-kubeconfig
+**/*kubeconfig*
 *.md
 openspec
 docs

@@ -60,7 +60,7 @@ Cursor skills under `.cursor/skills/openspec-*` drive propose → apply → arch
 | `sales-page-studio` | Implemented | Studio, LangGraph pipeline, SQLite, React pages, local preview |
 | `fix-composer-and-hebrew-rtl` | Implemented | Composer pin, optimistic send, Hebrew RTL, Markdown, pipeline progress |
 | `studio-status-preview-empty` | Implemented | Status pills, preview toolbar, first-run empty state, IBM Plex |
-| `deploy-homerun-civo` | In progress | Path publish, Docker rehearsal; Civo apply not done |
+| `deploy-homerun-railway` | In progress | Path publish, Docker rehearsal, Railway config; production apply not done |
 
 Canonical specs are **not** archived into `openspec/specs/` yet. Until `/opsx-archive` + sync, the change folders are the source of truth. [ADR 0001](docs/adr/0001-static-node-chatbot.md) describes the old Node regex prototype and is **superseded**.
 
@@ -97,7 +97,7 @@ One process, one origin. Reserved paths stay the studio; every other first segme
 
 **SQLite as the only database.** One machine, one operator. Conversations, messages, and LangGraph checkpoints share `data/studio.sqlite`. Site bytes stay under `sites/<slug>/`.
 
-**Path publish, not a process per page.** Early design spawned Node on `3000, 3001, …`. Publish is now: write `sites/.staging/<slug>/`, replace `sites/<slug>/`, serve `{origin}/{slug}/`. Same contract locally and later on Civo (`https://homerun.love/<slug>/`).
+**Path publish, not a process per page.** Early design spawned Node on `3000, 3001, …`. Publish is now: write `sites/.staging/<slug>/`, replace `sites/<slug>/`, serve `{origin}/{slug}/`. Same contract locally and on Railway (`https://homerun.love/<slug>/`).
 
 ### LangGraph pipeline
 
@@ -151,23 +151,31 @@ Studio chrome stays LTR. Hebrew RTL is only on the generated page.
 
 White background, `#0a0a0a` text, one accent. Sections only: Hero, Problem, Benefits, Proof, Offer, FAQ, Final CTA, Footer. Tokens in `pagekit/`.
 
-### Hosting: local now, Civo next
+### Hosting: local now, Railway for production
 
-**Local (`python -m studio`).** FastAPI on `127.0.0.1:8080`. Serves the SPA and `sites/<slug>/`. Unknown slugs are 404.
+**Local (`python -m studio`).** FastAPI on `127.0.0.1:8080`. Serves the SPA and `sites/<slug>/`. Unknown slugs are 404. Files stay in `./data` and `./sites`.
 
-**Docker rehearsal.** `Dockerfile` + `docker-compose.yml` + `deploy/nginx-edge.conf`: studio writes a `sites` volume; nginx serves reserved paths to the studio and `/<slug>/` from the volume. Host port **8081** so it does not collide with a studio on 8080.
+**Docker rehearsal.** `Dockerfile` + `docker-compose.yml` + `deploy/nginx-edge.conf`. The studio writes `/app/persist` (SQLite under `data/`, pages under `sites/`). Nginx sends `/`, `/api`, `/assets`, `/health`, and `/static` to the studio, and every other `/<slug>/` to the volume. Host port **8081** so it does not collide with a studio on 8080.
 
-**Civo (specified, not applied).** Same volume contract: studio writes `sites`, pages pod reads them, Ingress splits reserved paths vs slugs. TLS for `homerun.love`. `civo-love-kubeconfig` is gitignored. The write *is* the deploy — no `kubectl cp`.
+```bash
+docker compose up --build
+# http://localhost:8081/  is the studio
+# sh deploy/smoke-compose.sh  checks /, a fixture slug, and a 404
+```
 
-`PUBLIC_BASE_URL` overrides link origin (`https://homerun.love` in cluster). Unset, links are `http://localhost:8080/<slug>/`.
+The image does not copy `.env`, kubeconfig, or local `data/` / `sites/`. `OPENROUTER_API_KEY` is passed in at runtime.
+
+**Railway (configured, not applied).** One production service. `railway.json` builds the Dockerfile, checks `/health`, keeps a single replica, and requires a volume at `/app/persist`. There is no staging or preview environment. The owner deploy, the variable names, and the `homerun.love` DNS steps are in `openspec/changes/deploy-homerun-railway/runbook.md`.
+
+`PUBLIC_BASE_URL` overrides link origin (`https://homerun.love` in production). Unset, links are `http://localhost:8080/<slug>/`. On Railway, if that variable is missing, links fall back to `https://$RAILWAY_PUBLIC_DOMAIN`. The app listens on `PORT` when Railway sets it, otherwise `STUDIO_PORT` (default 8080).
 
 ### Out of scope
 
 - Auth, multi-tenant SaaS, local LLMs
 - Visitor chat on the generated page
-- Per-page Kubernetes pods or sequential preview ports
-- Archiving OpenSpec deltas into `openspec/specs/`
-- Applying cluster manifests
+- Per-page processes or sequential preview ports
+- A staging or preview environment
+- Applying the Railway project, volume, or `homerun.love` DNS from this repo (see the runbook)
 
 ### Code map
 

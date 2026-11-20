@@ -10,11 +10,12 @@ WORKDIR /src/pagekit
 COPY pagekit/package.json pagekit/package-lock.json ./
 RUN npm ci
 
-FROM python:3.12-bookworm-slim
+FROM python:3.12-slim-bookworm
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends ca-certificates nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && node --version
 
 COPY pyproject.toml ./
 COPY studio ./studio
@@ -27,5 +28,7 @@ COPY --from=pagekit /src/pagekit/node_modules ./pagekit/node_modules
 ENV STUDIO_HOST=0.0.0.0
 ENV STUDIO_PORT=8080
 ENV PUBLISH_MODE=static
+ENV DATA_DIR=/app/persist/data
+ENV SITES_DIR=/app/persist/sites
 EXPOSE 8080
 CMD ["python", "-m", "studio"]

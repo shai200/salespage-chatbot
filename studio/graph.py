@@ -351,7 +351,7 @@ def build_graph(checkpointer: SqliteSaver | None = None):
 def get_checkpointer() -> SqliteSaver:
     global _checkpointer, _checkpoint_conn
     if _checkpointer is None:
-        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        config.ensure_storage()
         _checkpoint_conn = sqlite3.connect(str(config.DB_PATH), check_same_thread=False)
         _checkpointer = SqliteSaver(_checkpoint_conn)
         _checkpointer.setup()

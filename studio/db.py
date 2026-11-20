@@ -14,7 +14,7 @@ def utcnow() -> str:
 
 
 def connect() -> sqlite3.Connection:
-    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    config.ensure_storage()
     conn = sqlite3.connect(config.DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
