@@ -154,10 +154,15 @@ def _published_site_file(path: str) -> Path | None:
     if not parts:
         return None
     slug = parts[0]
-    if slug in config.RESERVED_SLUGS:
+    if slug in config.RESERVED_SLUGS or slug.startswith("."):
         return None
-    site = (config.SITES_DIR / slug).resolve()
-    if not site.is_dir() or not (site / "index.html").is_file():
+    root = config.SITES_DIR.resolve()
+    site = (root / slug).resolve()
+    try:
+        site.relative_to(root)
+    except ValueError:
+        return None
+    if site == root or not site.is_dir() or not (site / "index.html").is_file():
         return None
     rel = Path(*parts[1:]) if len(parts) > 1 else Path("index.html")
     candidate = (site / rel).resolve()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -8,14 +9,41 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
-DATA_DIR = ROOT / "data"
-SITES_DIR = ROOT / "sites"
+
+def _env_path(name: str) -> Path | None:
+    raw = os.getenv(name, "").strip()
+    return Path(raw) if raw else None
+
+
+def resolve_storage_dir(name: str, default: Path, volume_child: str) -> Path:
+    """Prefer an explicit path, then a subdirectory of the Railway volume."""
+    explicit = _env_path(name)
+    if explicit is not None:
+        return explicit
+    volume = _env_path("RAILWAY_VOLUME_MOUNT_PATH")
+    if volume is not None:
+        return volume / volume_child
+    return default
+
+
+def resolve_listen_port(environ: Mapping[str, str] | None = None) -> int:
+    """Railway injects PORT. STUDIO_PORT is the local and Compose override."""
+    env = os.environ if environ is None else environ
+    for key in ("PORT", "STUDIO_PORT"):
+        raw = str(env.get(key, "")).strip()
+        if raw:
+            return int(raw)
+    return 8080
+
+
+DATA_DIR = resolve_storage_dir("DATA_DIR", ROOT / "data", "data")
+SITES_DIR = resolve_storage_dir("SITES_DIR", ROOT / "sites", "sites")
 DB_PATH = DATA_DIR / "studio.sqlite"
 WEB_DIST = ROOT / "web" / "dist"
 PAGEKIT_DIR = ROOT / "pagekit"
 
 STUDIO_HOST = os.getenv("STUDIO_HOST", "127.0.0.1").strip() or "127.0.0.1"
-STUDIO_PORT = int(os.getenv("STUDIO_PORT", "8080") or "8080")
+STUDIO_PORT = resolve_listen_port()
 PAGE_PORT_START = 3000
 PUBLISH_MODE = os.getenv("PUBLISH_MODE", "local").strip().lower() or "local"
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
@@ -40,9 +68,17 @@ def is_static_publish() -> bool:
     return True
 
 
+def ensure_storage() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    SITES_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def public_origin() -> str:
     if PUBLIC_BASE_URL:
         return PUBLIC_BASE_URL
+    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
+    if railway_domain:
+        return f"https://{railway_domain}"
     return f"http://localhost:{STUDIO_PORT}"
 
 

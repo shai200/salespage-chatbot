@@ -6,11 +6,12 @@ services:
       STUDIO_PORT: "8080"
       PUBLISH_MODE: static
       PUBLIC_BASE_URL: http://localhost:8081
+      DATA_DIR: /app/persist/data
+      SITES_DIR: /app/persist/sites
       STUDIO_FAKE_LLM: ${STUDIO_FAKE_LLM:-1}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     volumes:
-      - sites:/app/sites
-      - data:/app/data
+      - homerun:/app/persist
     expose:
       - "8080"
 
@@ -19,11 +20,10 @@ services:
     ports:
       - "8081:80"
     volumes:
-      - sites:/sites:ro
+      - homerun:/app/persist:ro
       - ./deploy/nginx-edge.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - studio
 
 volumes:
-  sites:
-  data:
+  homerun:
