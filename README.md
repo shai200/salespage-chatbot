@@ -57,12 +57,12 @@ Cursor skills under `.cursor/skills/openspec-*` drive propose → apply → arch
 
 | Change | Status | What it captured |
 |---|---|---|
-| `sales-page-studio` | Implemented | Studio, LangGraph pipeline, SQLite, React pages, local preview |
-| `fix-composer-and-hebrew-rtl` | Implemented | Composer pin, optimistic send, Hebrew RTL, Markdown, pipeline progress |
-| `studio-status-preview-empty` | Implemented | Status pills, preview toolbar, first-run empty state, IBM Plex |
+| `sales-page-studio` | Archived | Studio, LangGraph pipeline, SQLite, React pages, local preview |
+| `fix-composer-and-hebrew-rtl` | Archived | Composer pin, optimistic send, Hebrew RTL, Markdown, pipeline progress |
+| `studio-status-preview-empty` | Archived | Status pills, preview toolbar, first-run empty state, IBM Plex |
 | `deploy-homerun-railway` | In progress | Path publish, Docker rehearsal, Railway config; production apply not done |
 
-Canonical specs are **not** archived into `openspec/specs/` yet. Until `/opsx-archive` + sync, the change folders are the source of truth. [ADR 0001](docs/adr/0001-static-node-chatbot.md) describes the old Node regex prototype and is **superseded**.
+Archived changes live under `openspec/changes/archive/2026-11-20-*`. Their requirements are merged into `openspec/specs/`. `deploy-homerun-railway` is still active: it replaces per-page ports with `/{slug}/` and is not archived until Railway is applied. [ADR 0001](docs/adr/0001-static-node-chatbot.md) describes the old Node regex prototype and is **superseded**.
 
 ## Architecture
 
